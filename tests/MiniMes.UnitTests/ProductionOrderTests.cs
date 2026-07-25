@@ -1,13 +1,12 @@
-using MiniMes.Api.Domain.Entities;
-using MiniMes.Api.Domain.Enums;
-using MiniMes.Api.Domain.Exceptions;
+using MiniMes.Production.Domain.Entities;
+using MiniMes.Production.Domain.Enums;
+using MiniMes.Production.Domain.Exceptions;
 using Xunit;
 
 namespace MiniMes.UnitTests;
 
 public class ProductionOrderTests
 {
-    // Helper: cria uma ordem válida em Draft para os cenários.
     private static ProductionOrder NewDraftOrder() =>
         new(orderNumber: "OP-0001", productId: Guid.NewGuid(), plannedQuantity: 100, priority: 1);
 
