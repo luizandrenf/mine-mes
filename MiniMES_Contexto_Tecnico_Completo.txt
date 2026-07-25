@@ -1,0 +1,2218 @@
+MINIMES — CONTEXTO TÉCNICO COMPLETO DO PROJETO
+==============================================
+
+Documento de handoff técnico para continuidade do projeto em Claude Code, ChatGPT
+ou outro assistente de desenvolvimento.
+
+Objetivo deste documento
+------------------------
+
+Este documento consolida as decisões técnicas, arquiteturais e funcionais discutidas
+para o desenvolvimento de um projeto de estudos em C# e .NET chamado MiniMES.
+
+O documento deve servir como:
+
+- especificação inicial do projeto;
+- referência de arquitetura;
+- guia de implementação;
+- contexto para assistentes de IA;
+- plano de evolução;
+- material de estudo de C# e ASP.NET Core;
+- base para portfólio profissional.
+
+O projeto não deve ser implementado todo de uma vez. A implementação deve ocorrer
+de maneira incremental, mantendo o sistema compilável e funcional ao final de cada
+etapa.
+
+
+1. CONTEXTO DO DESENVOLVEDOR
+============================
+
+O desenvolvedor é full stack pleno, com experiência principal em:
+
+- Node.js;
+- TypeScript;
+- React;
+- desenvolvimento de APIs REST;
+- bancos relacionais;
+- programação orientada a objetos;
+- arquitetura de backend.
+
+Ele está aprendendo C# e .NET para trabalhar em uma vaga que exige:
+
+- .NET e C# no backend;
+- React no frontend;
+- arquitetura de microsserviços;
+- sistemas MES e Shop Floor;
+- domínio de manufatura;
+- ambientes on-premises;
+- ferramentas como NATS, Keycloak e Nomad;
+- utilização profissional de ferramentas de IA;
+- metodologias ágeis.
+
+O desenvolvedor não é iniciante em programação, mas é iniciante em:
+
+- sintaxe e recursos específicos do C#;
+- ASP.NET Core;
+- Entity Framework Core;
+- injeção de dependência do ecossistema .NET;
+- convenções de projetos C#;
+- migrations do EF Core;
+- LINQ;
+- controle de concorrência no EF Core;
+- particularidades de async/await no .NET.
+
+Ao explicar uma implementação, devem ser detalhados os pontos que não são óbvios
+para alguém vindo de Node.js e TypeScript.
+
+Exemplos:
+
+- sealed;
+- record;
+- struct;
+- interface;
+- generic;
+- private set;
+- init;
+- nullable reference types;
+- Task;
+- async e await;
+- CancellationToken;
+- IEnumerable;
+- IQueryable;
+- DbSet;
+- tracking;
+- AsNoTracking;
+- LINQ;
+- lambdas;
+- extension methods;
+- Scoped, Transient e Singleton;
+- IDisposable e IAsyncDisposable;
+- constructors;
+- primary constructors;
+- migrations;
+- concorrência otimista;
+- Unit of Work;
+- transações.
+
+
+2. OBJETIVO DO PROJETO
+======================
+
+O projeto será uma plataforma simplificada de MES e Shop Floor.
+
+Nome provisório:
+
+MiniMES
+
+O sistema controlará a execução de ordens de produção dentro de um ambiente
+industrial.
+
+Fluxo principal:
+
+Produto cadastrado
+    ↓
+Ordem de produção criada
+    ↓
+Operações adicionadas à ordem
+    ↓
+Ordem liberada
+    ↓
+Operador inicia uma operação
+    ↓
+Produção e refugo são apontados
+    ↓
+Paradas de equipamentos podem ser registradas
+    ↓
+Inspeções de qualidade podem ser executadas
+    ↓
+Operação é concluída
+    ↓
+Ordem é concluída
+
+O projeto tem dois objetivos simultâneos:
+
+1. aprendizado profissional de C# e .NET;
+2. criação de um projeto relevante para portfólio e entrevistas.
+
+
+3. PRINCÍPIOS DE DESENVOLVIMENTO
+================================
+
+3.1 Desenvolvimento incremental
+-------------------------------
+
+Não implementar dezenas de arquivos ou vários microsserviços de uma só vez.
+
+Cada etapa deve:
+
+1. explicar o objetivo;
+2. apresentar os arquivos envolvidos;
+3. fornecer o código;
+4. explicar a sintaxe específica de C#;
+5. explicar a conexão entre as camadas;
+6. compilar;
+7. testar;
+8. manter o projeto funcionando.
+
+3.2 Evitar overengineering
+--------------------------
+
+Não criar abstrações apenas por aparência arquitetural.
+
+Exemplos a evitar:
+
+- GenericRepository<T> que apenas replica Add, Remove e Find do DbSet;
+- interfaces sem uma razão real;
+- dezenas de microsserviços desde o primeiro commit;
+- padrões complexos antes de existir uma regra de negócio;
+- múltiplos bancos antes da extração real de serviços;
+- eventos para operações puramente locais e simples.
+
+3.3 Controller fino
+-------------------
+
+O controller deve cuidar apenas de:
+
+- HTTP;
+- rotas;
+- parâmetros;
+- autenticação e autorização;
+- contratos de entrada;
+- contratos de saída;
+- status HTTP.
+
+O controller não deve:
+
+- executar consultas do EF Core;
+- conter regras de domínio;
+- chamar SaveChanges diretamente;
+- decidir transações;
+- alterar entidades arbitrariamente.
+
+3.4 Regras dentro do domínio
+----------------------------
+
+Estados importantes não devem ter setters públicos.
+
+Evitar:
+
+order.Status = ProductionOrderStatus.Completed;
+
+Preferir:
+
+order.Complete();
+
+A entidade deve validar se a transição é permitida.
+
+3.5 Um SaveChanges sempre que possível
+--------------------------------------
+
+Sempre que possível:
+
+- carregar entidades;
+- aplicar regras;
+- adicionar todas as alterações;
+- chamar SaveChangesAsync uma única vez.
+
+Isso permite utilizar a transação automática do Entity Framework Core.
+
+
+4. STACK DO PROJETO
+===================
+
+4.1 Backend
+-----------
+
+- .NET 10;
+- C# 14;
+- ASP.NET Core Web API;
+- controllers;
+- Entity Framework Core;
+- Npgsql.EntityFrameworkCore.PostgreSQL;
+- PostgreSQL;
+- OpenAPI;
+- injeção de dependência nativa do ASP.NET Core;
+- xUnit;
+- WebApplicationFactory para testes de integração.
+
+4.2 Infraestrutura local
+------------------------
+
+- Docker;
+- Docker Compose;
+- PostgreSQL;
+- futuramente NATS com JetStream;
+- futuramente Keycloak;
+- futuramente OpenTelemetry;
+- futuramente Prometheus;
+- futuramente Grafana;
+- futuramente Jaeger ou Grafana Tempo;
+- futuramente Nomad.
+
+4.3 Frontend futuro
+-------------------
+
+- React;
+- TypeScript;
+- cliente HTTP;
+- SignalR Client;
+- autenticação OpenID Connect;
+- integração com Keycloak.
+
+4.4 Ferramentas de desenvolvimento
+----------------------------------
+
+- VS Code;
+- C# Dev Kit;
+- .NET SDK;
+- Git;
+- Docker;
+- dotnet-ef;
+- curl, Bruno ou Postman.
+
+
+5. ESTRATÉGIA ARQUITETURAL
+==========================
+
+5.1 Arquitetura inicial
+-----------------------
+
+O projeto deve começar como um monólito modular.
+
+Cliente HTTP ou React
+        ↓
+ASP.NET Core Web API
+        ↓
+Controllers
+        ↓
+Application Services
+        ↓
+Repositories
+        ↓
+Entity Framework Core
+        ↓
+PostgreSQL
+
+5.2 Fluxo interno principal
+---------------------------
+
+Controller
+    ↓
+IService
+    ↓
+Service
+    ↓
+IRepository
+    ↓
+Repository
+    ↓
+DbContext
+    ↓
+PostgreSQL
+
+5.3 Responsabilidades
+---------------------
+
+Controller:
+
+- recebe request;
+- valida entrada HTTP;
+- transforma request em command;
+- chama service;
+- transforma resultado em response;
+- retorna status HTTP.
+
+Service:
+
+- representa o caso de uso;
+- coordena repositories;
+- chama métodos das entidades;
+- executa regras de aplicação;
+- decide quando salvar;
+- decide quando iniciar transação explícita;
+- retorna DTOs.
+
+Repository:
+
+- contém consultas do Entity Framework Core;
+- decide tracking ou AsNoTracking;
+- usa Include quando necessário;
+- adiciona e remove entidades;
+- abstrai consultas específicas do domínio;
+- não deve controlar o caso de uso inteiro.
+
+Unit of Work:
+
+- executa SaveChangesAsync;
+- confirma alterações feitas por diferentes repositories;
+- pode expor controle de transação explícita;
+- compartilha o mesmo DbContext dos repositories.
+
+DbContext:
+
+- representa uma sessão de trabalho com o banco;
+- faz tracking das entidades;
+- traduz LINQ em SQL;
+- executa SaveChanges;
+- configura o provider PostgreSQL.
+
+Entidade:
+
+- protege seu estado;
+- valida invariantes;
+- controla transições;
+- não depende de ASP.NET Core;
+- idealmente não depende de EF Core diretamente.
+
+5.4 Evolução final
+------------------
+
+Depois do monólito modular estar funcional, módulos poderão ser extraídos para:
+
+- Production.Api;
+- Execution.Api;
+- Equipment.Api;
+- Quality.Api;
+- Realtime.Api;
+- MachineSimulator.Worker;
+- OutboxPublisher.Worker.
+
+A extração deve ser orientada por limites reais de domínio e responsabilidade.
+
+
+6. ESTRUTURA INICIAL DO PROJETO
+===============================
+
+Enquanto estiver em um único projeto:
+
+MiniMes.Api/
+├── Application/
+│   ├── Abstractions/
+│   ├── Products/
+│   ├── ProductionOrders/
+│   └── Executions/
+│
+├── Contracts/
+│   ├── Products/
+│   ├── ProductionOrders/
+│   └── Executions/
+│
+├── Controllers/
+│
+├── Data/
+│   ├── Configurations/
+│   ├── Migrations/
+│   └── MiniMesDbContext.cs
+│
+├── Domain/
+│   ├── Entities/
+│   ├── Enums/
+│   ├── Exceptions/
+│   └── Events/
+│
+├── Infrastructure/
+│   ├── Persistence/
+│   ├── Repositories/
+│   └── Messaging/
+│
+├── Middleware/
+├── Program.cs
+├── compose.yaml
+└── MiniMes.Api.csproj
+
+Estrutura futura da solution:
+
+MiniMes/
+├── src/
+│   ├── MiniMes.Api/
+│   ├── MiniMes.Application/
+│   ├── MiniMes.Domain/
+│   └── MiniMes.Infrastructure/
+│
+├── workers/
+│   ├── MiniMes.OutboxPublisher/
+│   └── MiniMes.MachineSimulator/
+│
+├── tests/
+│   ├── MiniMes.UnitTests/
+│   ├── MiniMes.IntegrationTests/
+│   └── MiniMes.ArchitectureTests/
+│
+├── deploy/
+│   ├── compose.yaml
+│   └── nomad/
+│
+└── MiniMes.sln
+
+Dependências futuras:
+
+MiniMes.Domain
+    não depende de outros projetos
+
+MiniMes.Application
+    depende de MiniMes.Domain
+
+MiniMes.Infrastructure
+    depende de MiniMes.Application e MiniMes.Domain
+
+MiniMes.Api
+    depende de MiniMes.Application e MiniMes.Infrastructure
+
+
+7. CONFIGURAÇÃO DO POSTGRESQL
+=============================
+
+O PostgreSQL deve ser executado localmente por Docker Compose.
+
+Exemplo de compose.yaml:
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: minimes-postgres
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "${POSTGRES_PORT}:5432"
+
+    volumes:
+      - minimes_postgres_data:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    restart: unless-stopped
+
+volumes:
+  minimes_postgres_data:
+
+Exemplo de .env local:
+
+POSTGRES_DB=minimes
+POSTGRES_USER=minimes
+POSTGRES_PASSWORD=<senha-local>
+POSTGRES_PORT=5432
+
+O arquivo .env não deve ser versionado.
+
+Comandos úteis:
+
+docker compose up -d
+docker compose ps
+docker compose logs postgres
+docker compose stop
+docker compose start
+docker compose down
+docker compose down -v
+
+A opção -v remove o volume e apaga os dados locais.
+
+Teste de disponibilidade:
+
+docker compose exec postgres \
+  pg_isready -U minimes -d minimes
+
+Abrir psql:
+
+docker compose exec postgres \
+  psql -U minimes -d minimes
+
+
+8. CONNECTION STRING
+====================
+
+A connection string não deve ficar com senha diretamente no Git.
+
+Em desenvolvimento, usar user secrets:
+
+dotnet user-secrets init
+
+dotnet user-secrets set \
+  "ConnectionStrings:Postgres" \
+  "Host=localhost;Port=5432;Database=minimes;Username=minimes;Password=<senha>"
+
+Leitura no Program.cs:
+
+string connectionString =
+    builder.Configuration.GetConnectionString("Postgres")
+    ?? throw new InvalidOperationException(
+        "A connection string 'Postgres' não foi configurada."
+    );
+
+O operador ?? utiliza o valor da esquerda e, se ele for null, utiliza o valor da
+direita. Neste caso, lança uma exceção clara durante a inicialização.
+
+
+9. ENTITY FRAMEWORK CORE
+========================
+
+Pacotes principais:
+
+- Npgsql.EntityFrameworkCore.PostgreSQL;
+- Microsoft.EntityFrameworkCore.Design;
+- dotnet-ef como ferramenta local ou global.
+
+Comandos:
+
+dotnet ef migrations add InitialCreate
+dotnet ef database update
+dotnet ef migrations list
+dotnet ef migrations remove
+dotnet ef migrations script --output migration.sql
+
+9.1 DbContext
+-------------
+
+O DbContext deve permanecer pequeno.
+
+Exemplo:
+
+using Microsoft.EntityFrameworkCore;
+using MiniMes.Api.Domain.Entities;
+
+namespace MiniMes.Api.Data;
+
+public sealed class MiniMesDbContext : DbContext
+{
+    public MiniMesDbContext(
+        DbContextOptions<MiniMesDbContext> options
+    ) : base(options)
+    {
+    }
+
+    public DbSet<Product> Products =>
+        Set<Product>();
+
+    public DbSet<ProductionOrder> ProductionOrders =>
+        Set<ProductionOrder>();
+
+    public DbSet<ProductionOperation> ProductionOperations =>
+        Set<ProductionOperation>();
+
+    public DbSet<OperationExecution> OperationExecutions =>
+        Set<OperationExecution>();
+
+    public DbSet<ProductionReport> ProductionReports =>
+        Set<ProductionReport>();
+
+    protected override void OnModelCreating(
+        ModelBuilder modelBuilder
+    )
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(MiniMesDbContext).Assembly
+        );
+    }
+}
+
+9.2 Configuração por entidade
+-----------------------------
+
+Cada entidade deve ter uma classe própria:
+
+public sealed class ProductionOrderConfiguration
+    : IEntityTypeConfiguration<ProductionOrder>
+{
+    public void Configure(
+        EntityTypeBuilder<ProductionOrder> builder
+    )
+    {
+        // mapeamento
+    }
+}
+
+ApplyConfigurationsFromAssembly procura automaticamente classes que implementam:
+
+IEntityTypeConfiguration<T>
+
+9.3 Tracking
+------------
+
+Para consultas somente leitura:
+
+.AsNoTracking()
+
+Para entidades que serão alteradas:
+
+- não utilizar AsNoTracking;
+- carregar a entidade com tracking;
+- alterar pela entidade;
+- chamar SaveChangesAsync.
+
+9.4 IQueryable
+--------------
+
+Consultas EF Core normalmente constroem um IQueryable.
+
+A consulta só é executada quando ocorre uma operação terminal, por exemplo:
+
+- ToListAsync;
+- FirstOrDefaultAsync;
+- SingleAsync;
+- CountAsync;
+- AnyAsync.
+
+9.5 Migrations
+--------------
+
+Criar migration quando houver alteração no esquema:
+
+- nova tabela;
+- nova coluna;
+- alteração de tipo;
+- índice;
+- chave estrangeira;
+- restrição.
+
+Mover classes de pasta ou namespace, mantendo o mesmo mapeamento, não deveria gerar
+alteração de esquema.
+
+Não editar migration antiga que já foi aplicada em ambientes compartilhados.
+Criar uma nova migration.
+
+
+10. INJEÇÃO DE DEPENDÊNCIA
+==========================
+
+Não é o C# que injeta automaticamente dependências.
+
+Quem faz isso é o container de DI do ASP.NET Core.
+
+O campo privado apenas armazena a dependência:
+
+private readonly IProductionOrderRepository _repository;
+
+A dependência é declarada no construtor:
+
+public ProductionOrderService(
+    IProductionOrderRepository repository
+)
+{
+    _repository = repository;
+}
+
+O registro acontece no Program.cs:
+
+builder.Services.AddScoped<
+    IProductionOrderRepository,
+    ProductionOrderRepository
+>();
+
+builder.Services.AddScoped<
+    IProductionOrderService,
+    ProductionOrderService
+>();
+
+10.1 Ciclos de vida
+-------------------
+
+Scoped:
+
+- uma instância por escopo;
+- em API web, normalmente uma instância por requisição;
+- recomendado para DbContext, repositories e services relacionados.
+
+Transient:
+
+- uma nova instância cada vez que o serviço é solicitado;
+- adequado para objetos leves e sem estado compartilhado.
+
+Singleton:
+
+- uma instância para toda a aplicação;
+- não deve depender diretamente de DbContext scoped;
+- exige cuidado com thread safety.
+
+O DbContext é registrado como Scoped por padrão pelo AddDbContext.
+
+
+11. UNIT OF WORK E TRANSAÇÕES
+=============================
+
+11.1 Transação automática
+-------------------------
+
+Cada SaveChangesAsync é transacional quando o provider suporta transações.
+
+Exemplo:
+
+_orderRepository.Add(order);
+_historyRepository.Add(history);
+
+await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+Se os dois repositories compartilham o mesmo DbContext, os dois inserts podem ser
+confirmados na mesma transação.
+
+11.2 Interface da Unit of Work
+------------------------------
+
+public interface IUnitOfWork
+{
+    Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken
+    );
+}
+
+Implementação:
+
+public sealed class UnitOfWork : IUnitOfWork
+{
+    private readonly MiniMesDbContext _dbContext;
+
+    public UnitOfWork(
+        MiniMesDbContext dbContext
+    )
+    {
+        _dbContext = dbContext;
+    }
+
+    public Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken
+    )
+    {
+        return _dbContext.SaveChangesAsync(
+            cancellationToken
+        );
+    }
+}
+
+11.3 Transação explícita
+------------------------
+
+Usar transação explícita quando:
+
+- existem vários SaveChangesAsync;
+- todos precisam ser atômicos;
+- existem comandos EF Core e SQL manual;
+- há vários passos de banco que não podem ser reunidos em um SaveChanges.
+
+Não abrir transação explícita para toda operação simples.
+
+Não manter transação aberta durante:
+
+- chamada HTTP externa;
+- publicação em broker;
+- espera de usuário;
+- processamento demorado.
+
+11.4 Banco e NATS
+-----------------
+
+Uma transação PostgreSQL não inclui automaticamente uma publicação no NATS.
+
+Para banco + mensageria, utilizar Transactional Outbox:
+
+1. alterar entidade;
+2. gravar mensagem na outbox;
+3. chamar SaveChangesAsync;
+4. worker lê outbox;
+5. worker publica no NATS;
+6. marca mensagem como processada.
+
+
+12. REPOSITORIES
+================
+
+Não criar repository genérico apenas para envolver o DbSet.
+
+Interface de exemplo:
+
+public interface IProductionOrderRepository
+{
+    Task<IReadOnlyList<ProductionOrder>> GetAllAsync(
+        CancellationToken cancellationToken
+    );
+
+    Task<ProductionOrder?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken
+    );
+
+    Task<ProductionOrder?> GetByIdForUpdateAsync(
+        Guid id,
+        CancellationToken cancellationToken
+    );
+
+    void Add(ProductionOrder productionOrder);
+}
+
+Consulta somente leitura:
+
+public async Task<IReadOnlyList<ProductionOrder>> GetAllAsync(
+    CancellationToken cancellationToken
+)
+{
+    return await _dbContext
+        .ProductionOrders
+        .AsNoTracking()
+        .OrderByDescending(order => order.CreatedAt)
+        .ToListAsync(cancellationToken);
+}
+
+Consulta para alteração:
+
+public Task<ProductionOrder?> GetByIdForUpdateAsync(
+    Guid id,
+    CancellationToken cancellationToken
+)
+{
+    return _dbContext
+        .ProductionOrders
+        .Include(order => order.Operations)
+        .FirstOrDefaultAsync(
+            order => order.Id == id,
+            cancellationToken
+        );
+}
+
+Não usar AsNoTracking em uma entidade que será alterada pelo mesmo DbContext.
+
+
+13. SERVICES
+============
+
+O service representa o caso de uso.
+
+Exemplo de interface:
+
+public interface IProductionOrderService
+{
+    Task<IReadOnlyList<ProductionOrderDto>> GetAllAsync(
+        CancellationToken cancellationToken
+    );
+
+    Task<ProductionOrderDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken
+    );
+
+    Task<ProductionOrderDto> CreateAsync(
+        CreateProductionOrderCommand command,
+        CancellationToken cancellationToken
+    );
+
+    Task ReleaseAsync(
+        Guid id,
+        CancellationToken cancellationToken
+    );
+}
+
+Exemplo de criação:
+
+public async Task<ProductionOrderDto> CreateAsync(
+    CreateProductionOrderCommand command,
+    CancellationToken cancellationToken
+)
+{
+    Product? product =
+        await _productRepository.GetByIdAsync(
+            command.ProductId,
+            cancellationToken
+        );
+
+    if (product is null)
+    {
+        throw new ProductNotFoundException(
+            command.ProductId
+        );
+    }
+
+    if (!product.IsActive)
+    {
+        throw new InactiveProductException(
+            command.ProductId
+        );
+    }
+
+    var order = new ProductionOrder(
+        command.OrderNumber,
+        command.ProductId,
+        command.PlannedQuantity,
+        command.Priority
+    );
+
+    _productionOrderRepository.Add(order);
+
+    await _unitOfWork.SaveChangesAsync(
+        cancellationToken
+    );
+
+    return ProductionOrderDto.FromEntity(order);
+}
+
+Exemplo de liberação:
+
+public async Task ReleaseAsync(
+    Guid id,
+    CancellationToken cancellationToken
+)
+{
+    ProductionOrder? order =
+        await _productionOrderRepository
+            .GetByIdForUpdateAsync(
+                id,
+                cancellationToken
+            );
+
+    if (order is null)
+    {
+        throw new ProductionOrderNotFoundException(id);
+    }
+
+    order.Release();
+
+    await _unitOfWork.SaveChangesAsync(
+        cancellationToken
+    );
+}
+
+
+14. REQUESTS, COMMANDS E DTOS
+============================
+
+Não passar diretamente o request HTTP ao service.
+
+Fluxo:
+
+CreateProductionOrderRequest
+        ↓
+CreateProductionOrderCommand
+        ↓
+ProductionOrderService
+        ↓
+ProductionOrder
+        ↓
+ProductionOrderDto
+
+Request:
+
+- pertence à API;
+- representa JSON;
+- pode usar DataAnnotations;
+- não deve ser usado como entidade.
+
+Command:
+
+- pertence à camada Application;
+- representa intenção de negócio;
+- pode ser um record.
+
+DTO:
+
+- representa saída da aplicação;
+- evita retornar entidade diretamente;
+- protege o contrato público da API.
+
+Exemplo:
+
+public sealed record CreateProductionOrderCommand(
+    string OrderNumber,
+    Guid ProductId,
+    decimal PlannedQuantity,
+    int Priority
+);
+
+public sealed record ProductionOrderDto(
+    Guid Id,
+    string OrderNumber,
+    Guid ProductId,
+    decimal PlannedQuantity,
+    string Status,
+    int Priority,
+    DateTime CreatedAt
+);
+
+
+15. DOMÍNIOS E MÓDULOS
+======================
+
+15.1 Catalog
+------------
+
+Entidades:
+
+- Product;
+- WorkCenter;
+- Shift;
+- DowntimeReason;
+- ScrapReason.
+
+Responsabilidades:
+
+- produtos;
+- centros de trabalho;
+- turnos;
+- motivos de parada;
+- motivos de refugo.
+
+15.2 Production
+---------------
+
+Entidades:
+
+- ProductionOrder;
+- ProductionOperation.
+
+Responsabilidades:
+
+- planejamento;
+- criação de ordens;
+- operações;
+- sequência;
+- liberação;
+- cancelamento;
+- conclusão.
+
+15.3 Execution
+--------------
+
+Entidades:
+
+- OperationExecution;
+- ProductionReport;
+- ScrapReport, se separado.
+
+Responsabilidades:
+
+- iniciar operação;
+- pausar;
+- retomar;
+- apontar produção;
+- apontar refugo;
+- concluir operação.
+
+15.4 Equipment
+--------------
+
+Entidades:
+
+- Equipment;
+- DowntimeEvent.
+
+Responsabilidades:
+
+- máquinas;
+- disponibilidade;
+- paradas;
+- manutenção;
+- estado atual.
+
+15.5 Quality
+------------
+
+Entidades:
+
+- QualityInspection;
+- QualityMeasurement.
+
+Responsabilidades:
+
+- inspeções;
+- medições;
+- aprovação;
+- reprovação.
+
+15.6 Audit e integração
+-----------------------
+
+Entidades:
+
+- AuditLog;
+- OutboxMessage;
+- ProcessedMessage.
+
+Responsabilidades:
+
+- auditoria;
+- histórico;
+- publicação confiável de eventos;
+- idempotência de consumidores.
+
+
+16. ENTIDADES DO MVP
+====================
+
+16.1 Product
+------------
+
+Campos:
+
+- Id;
+- Code;
+- Name;
+- IsActive;
+- CreatedAt.
+
+Regras:
+
+- código obrigatório;
+- código único;
+- nome obrigatório;
+- produto inativo não pode ser usado em nova ordem.
+
+16.2 ProductionOrder
+--------------------
+
+Campos:
+
+- Id;
+- OrderNumber;
+- ProductId;
+- PlannedQuantity;
+- Status;
+- Priority;
+- PlannedStartAt;
+- PlannedEndAt;
+- CreatedAt;
+- ReleasedAt;
+- Version;
+- Operations.
+
+Status:
+
+public enum ProductionOrderStatus
+{
+    Draft = 1,
+    Released = 2,
+    InProgress = 3,
+    Completed = 4,
+    Cancelled = 5
+}
+
+Transições:
+
+Draft → Released
+Draft → Cancelled
+Released → InProgress
+Released → Cancelled
+InProgress → Completed
+
+Regras:
+
+- quantidade planejada maior que zero;
+- número da ordem único;
+- deve possuir pelo menos uma operação antes da liberação;
+- ordem cancelada não pode iniciar;
+- ordem concluída não pode ser alterada;
+- só pode concluir quando todas as operações estiverem concluídas.
+
+Métodos:
+
+- AddOperation;
+- Release;
+- Start;
+- Complete;
+- Cancel.
+
+16.3 ProductionOperation
+------------------------
+
+Campos:
+
+- Id;
+- ProductionOrderId;
+- Sequence;
+- Code;
+- Description;
+- WorkCenterId;
+- PlannedQuantity;
+- Status;
+- TargetCycleTimeSeconds.
+
+Regras:
+
+- sequência única por ordem;
+- operação anterior deve estar concluída antes da próxima iniciar;
+- operação concluída não recebe novos apontamentos;
+- quantidade não ultrapassa planejado sem regra explícita.
+
+Status sugeridos:
+
+public enum ProductionOperationStatus
+{
+    Pending = 1,
+    Ready = 2,
+    InProgress = 3,
+    Paused = 4,
+    Completed = 5,
+    Cancelled = 6
+}
+
+16.4 OperationExecution
+-----------------------
+
+Campos:
+
+- Id;
+- ProductionOperationId;
+- EquipmentId;
+- ShiftId;
+- OperatorUserId;
+- Status;
+- GoodQuantity;
+- ScrapQuantity;
+- StartedAt;
+- FinishedAt;
+- Version.
+
+Representa uma execução real de uma operação.
+
+16.5 ProductionReport
+---------------------
+
+Campos:
+
+- Id;
+- ExecutionId;
+- GoodQuantity;
+- ScrapQuantity;
+- ClientEventId;
+- ReportedAt.
+
+ClientEventId deve ser único para garantir idempotência.
+
+16.6 Equipment
+--------------
+
+Campos:
+
+- Id;
+- Code;
+- Name;
+- WorkCenterId;
+- Status;
+- CreatedAt;
+- Version.
+
+Status:
+
+public enum EquipmentStatus
+{
+    Available = 1,
+    Running = 2,
+    Stopped = 3,
+    Maintenance = 4,
+    Offline = 5
+}
+
+16.7 DowntimeEvent
+------------------
+
+Campos:
+
+- Id;
+- EquipmentId;
+- ExecutionId;
+- ReasonId;
+- StartedAt;
+- FinishedAt;
+- Notes.
+
+Regras:
+
+- máquina não pode ter duas paradas abertas;
+- FinishedAt deve ser posterior a StartedAt;
+- equipamento fica Stopped enquanto existir parada aberta.
+
+16.8 QualityInspection
+----------------------
+
+Campos:
+
+- Id;
+- ProductionOperationId;
+- Status;
+- InspectorUserId;
+- CreatedAt;
+- CompletedAt;
+- Measurements.
+
+16.9 QualityMeasurement
+-----------------------
+
+Campos:
+
+- Id;
+- QualityInspectionId;
+- Characteristic;
+- MeasuredValue;
+- MinimumValue;
+- MaximumValue;
+- Unit;
+- IsApproved.
+
+
+17. TABELAS
+===========
+
+17.1 products
+-------------
+
+id UUID PK
+code varchar(50) unique not null
+name varchar(200) not null
+is_active boolean not null
+created_at timestamptz not null
+
+17.2 work_centers
+-----------------
+
+id UUID PK
+code varchar(50) unique not null
+name varchar(200) not null
+is_active boolean not null
+created_at timestamptz not null
+
+17.3 shifts
+-----------
+
+id UUID PK
+code varchar(30) unique not null
+name varchar(100) not null
+start_time time not null
+end_time time not null
+
+17.4 production_orders
+----------------------
+
+id UUID PK
+order_number varchar(50) unique not null
+product_id UUID FK not null
+planned_quantity numeric(18,3) not null
+status varchar(30) not null
+priority integer not null
+planned_start_at timestamptz null
+planned_end_at timestamptz null
+created_at timestamptz not null
+released_at timestamptz null
+version UUID not null
+
+17.5 production_operations
+--------------------------
+
+id UUID PK
+production_order_id UUID FK not null
+sequence integer not null
+code varchar(50) not null
+description varchar(200) not null
+work_center_id UUID FK not null
+planned_quantity numeric(18,3) not null
+status varchar(30) not null
+target_cycle_time_seconds integer null
+
+Índice único:
+
+production_order_id + sequence
+
+17.6 operation_executions
+-------------------------
+
+id UUID PK
+production_operation_id UUID FK not null
+equipment_id UUID FK not null
+shift_id UUID FK null
+operator_user_id varchar(100) not null
+status varchar(30) not null
+good_quantity numeric(18,3) not null
+scrap_quantity numeric(18,3) not null
+started_at timestamptz not null
+finished_at timestamptz null
+version UUID not null
+
+17.7 production_reports
+-----------------------
+
+id UUID PK
+execution_id UUID FK not null
+good_quantity numeric(18,3) not null
+scrap_quantity numeric(18,3) not null
+client_event_id varchar(100) unique not null
+reported_at timestamptz not null
+
+17.8 equipment
+--------------
+
+id UUID PK
+code varchar(50) unique not null
+name varchar(200) not null
+work_center_id UUID FK not null
+status varchar(30) not null
+created_at timestamptz not null
+version UUID not null
+
+17.9 downtime_events
+--------------------
+
+id UUID PK
+equipment_id UUID FK not null
+execution_id UUID FK null
+reason_id UUID FK not null
+started_at timestamptz not null
+finished_at timestamptz null
+notes varchar(500) null
+
+17.10 quality_inspections
+-------------------------
+
+id UUID PK
+production_operation_id UUID FK not null
+status varchar(30) not null
+inspector_user_id varchar(100) null
+created_at timestamptz not null
+completed_at timestamptz null
+
+17.11 quality_measurements
+--------------------------
+
+id UUID PK
+quality_inspection_id UUID FK not null
+characteristic varchar(100) not null
+measured_value numeric(18,6) not null
+minimum_value numeric(18,6) null
+maximum_value numeric(18,6) null
+unit varchar(30) not null
+is_approved boolean not null
+
+17.12 outbox_messages
+---------------------
+
+id UUID PK
+message_type varchar(200) not null
+payload jsonb not null
+occurred_at timestamptz not null
+processed_at timestamptz null
+attempts integer not null
+error text null
+
+17.13 processed_messages
+------------------------
+
+message_id UUID not null
+consumer_name varchar(200) not null
+processed_at timestamptz not null
+
+Chave primária composta:
+
+message_id + consumer_name
+
+
+18. ENDPOINTS DO MVP
+====================
+
+Produtos:
+
+POST /api/products
+GET  /api/products
+GET  /api/products/{id}
+PATCH /api/products/{id}/activate
+PATCH /api/products/{id}/deactivate
+
+Ordens:
+
+POST /api/production-orders
+GET  /api/production-orders
+GET  /api/production-orders/{id}
+POST /api/production-orders/{id}/operations
+POST /api/production-orders/{id}/release
+POST /api/production-orders/{id}/cancel
+
+Execução:
+
+POST /api/operations/{id}/start
+POST /api/executions/{id}/pause
+POST /api/executions/{id}/resume
+POST /api/executions/{id}/reports
+POST /api/executions/{id}/complete
+GET  /api/executions/{id}
+
+Equipamentos:
+
+POST /api/equipment
+GET  /api/equipment
+GET  /api/equipment/{id}
+POST /api/equipment/{id}/downtimes
+POST /api/equipment/{id}/downtimes/{downtimeId}/finish
+
+Qualidade:
+
+POST /api/operations/{id}/quality-inspections
+POST /api/quality-inspections/{id}/measurements
+POST /api/quality-inspections/{id}/approve
+POST /api/quality-inspections/{id}/reject
+GET  /api/quality-inspections/{id}
+
+Evitar:
+
+PATCH /api/production-orders/{id}
+{
+  "status": "Completed"
+}
+
+Preferir:
+
+POST /api/production-orders/{id}/release
+POST /api/production-orders/{id}/cancel
+
+
+19. PAGINAÇÃO E FILTROS
+=======================
+
+Exemplo:
+
+GET /api/production-orders
+    ?status=Released
+    &productCode=MOTOR
+    &page=1
+    &pageSize=20
+    &sort=-createdAt
+
+Resposta:
+
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 20,
+  "totalItems": 0,
+  "totalPages": 0
+}
+
+Aplicar limites para pageSize para evitar consultas excessivas.
+
+
+20. CONCORRÊNCIA OTIMISTA
+=========================
+
+Entidades alteradas por vários terminais devem possuir um token de versão.
+
+Exemplo:
+
+public Guid Version { get; private set; }
+
+Configuração:
+
+builder
+    .Property(entity => entity.Version)
+    .HasColumnName("version")
+    .IsConcurrencyToken();
+
+Antes de salvar uma alteração, atualizar Version.
+
+Quando ocorrer DbUpdateConcurrencyException:
+
+- capturar no middleware ou camada apropriada;
+- retornar HTTP 409 Conflict;
+- informar que o recurso foi alterado por outro processo.
+
+Cenários:
+
+- dois operadores apontando produção;
+- dois supervisores alterando a ordem;
+- operação encerrada enquanto outro terminal envia apontamento.
+
+
+21. VALIDAÇÃO E ERROS
+=====================
+
+Validações básicas de request:
+
+- DataAnnotations ou solução equivalente;
+- Required;
+- MaxLength;
+- Range.
+
+Regras de negócio devem permanecer no domínio ou service.
+
+Criar exceções específicas:
+
+- ProductNotFoundException;
+- ProductionOrderNotFoundException;
+- InvalidProductionOrderStateException;
+- InactiveProductException;
+- DuplicateOrderNumberException;
+- OperationSequenceConflictException.
+
+Implementar middleware global de exceções.
+
+Usar ProblemDetails.
+
+Mapeamentos sugeridos:
+
+- recurso não encontrado → 404;
+- validação de negócio → 422 ou 400, conforme padrão escolhido;
+- conflito de concorrência → 409;
+- duplicidade → 409;
+- erro inesperado → 500.
+
+
+22. TESTES
+==========
+
+22.1 Testes unitários
+---------------------
+
+Prioridade:
+
+- criação de Product;
+- ativação e desativação;
+- criação de ProductionOrder;
+- AddOperation;
+- Release;
+- Cancel;
+- Start;
+- Complete;
+- regras de sequência;
+- regras de quantidade;
+- transições inválidas.
+
+Evitar mocks para testar entidades.
+
+22.2 Testes de service
+----------------------
+
+Testar:
+
+- produto inexistente;
+- produto inativo;
+- ordem inexistente;
+- repository chamado;
+- Unit of Work chamado;
+- não salvar quando regra falha.
+
+22.3 Testes de integração
+-------------------------
+
+Utilizar:
+
+- WebApplicationFactory;
+- PostgreSQL real em container;
+- migrations;
+- chamadas HTTP reais;
+- validação de banco;
+- status HTTP;
+- serialização.
+
+22.4 Testes futuros
+-------------------
+
+- concorrência;
+- idempotência;
+- outbox;
+- consumidores NATS;
+- autorização;
+- arquitetura.
+
+
+23. NATS E JETSTREAM
+====================
+
+Entrar apenas após o MVP local estar funcionando.
+
+Eventos sugeridos:
+
+production.order.created.v1
+production.order.released.v1
+production.order.cancelled.v1
+production.operation.started.v1
+production.quantity.reported.v1
+production.operation.completed.v1
+equipment.downtime.started.v1
+equipment.downtime.finished.v1
+quality.inspection.rejected.v1
+production.order.completed.v1
+
+Todo evento deve possuir:
+
+- EventId;
+- tipo;
+- versão;
+- CorrelationId;
+- entidade principal;
+- OccurredAt em UTC;
+- payload necessário ao consumidor.
+
+Consumidores devem ser idempotentes.
+
+JetStream pode entregar a mesma mensagem mais de uma vez.
+
+Tabela processed_messages deve impedir processamento duplicado.
+
+
+24. TRANSACTIONAL OUTBOX
+========================
+
+Fluxo:
+
+1. entidade gera evento;
+2. service altera entidade;
+3. service cria OutboxMessage;
+4. SaveChangesAsync grava tudo;
+5. OutboxPublisher.Worker consulta mensagens pendentes;
+6. publica no NATS;
+7. marca ProcessedAt;
+8. registra tentativas e erros.
+
+O evento e a alteração de negócio ficam na mesma transação PostgreSQL.
+
+
+25. KEYCLOAK
+============
+
+Adicionar depois do núcleo funcional.
+
+Padrões:
+
+- OpenID Connect;
+- OAuth 2.0;
+- JWT;
+- Authorization Code com PKCE no frontend;
+- Client Credentials entre serviços.
+
+Roles:
+
+- operator;
+- supervisor;
+- quality-inspector;
+- maintenance-technician;
+- production-planner;
+- administrator.
+
+Exemplos:
+
+Criar ordem:
+production-planner
+
+Liberar e cancelar ordem:
+supervisor
+
+Iniciar operação e apontar produção:
+operator
+
+Registrar ou finalizar manutenção:
+maintenance-technician
+
+Aprovar inspeção:
+quality-inspector
+
+Administrar catálogos:
+administrator
+
+OperatorUserId deve armazenar o subject, ou sub, do token do Keycloak.
+
+O MiniMES não deve armazenar senhas próprias.
+
+
+26. SIGNALR
+===========
+
+Adicionar para atualizações em tempo real.
+
+Eventos de interface:
+
+- ordem liberada;
+- operação iniciada;
+- novo apontamento;
+- máquina parada;
+- máquina voltou;
+- inspeção reprovada;
+- operação concluída;
+- ordem concluída.
+
+Realtime.Api poderá consumir NATS e publicar para clientes SignalR.
+
+
+27. OBSERVABILIDADE
+===================
+
+Implementar:
+
+- logs estruturados;
+- CorrelationId;
+- OpenTelemetry;
+- tracing distribuído;
+- métricas;
+- health checks;
+- readiness;
+- liveness;
+- tempo de requisição;
+- taxa de erros;
+- número de mensagens pendentes;
+- falhas no outbox;
+- redeliveries;
+- status do PostgreSQL;
+- status do NATS.
+
+Ferramentas futuras:
+
+- OpenTelemetry Collector;
+- Prometheus;
+- Grafana;
+- Jaeger ou Tempo.
+
+
+28. MICROSSERVIÇOS FUTUROS
+==========================
+
+28.1 Production Service
+-----------------------
+
+Responsável por:
+
+- Product;
+- ProductionOrder;
+- ProductionOperation.
+
+Banco:
+
+production_db
+
+28.2 Execution Service
+----------------------
+
+Responsável por:
+
+- OperationExecution;
+- ProductionReport;
+- progresso de execução.
+
+Banco:
+
+execution_db
+
+28.3 Equipment Service
+----------------------
+
+Responsável por:
+
+- Equipment;
+- DowntimeEvent;
+- estado de máquinas.
+
+Banco:
+
+equipment_db
+
+28.4 Quality Service
+--------------------
+
+Responsável por:
+
+- QualityInspection;
+- QualityMeasurement.
+
+Banco:
+
+quality_db
+
+28.5 Realtime Service
+---------------------
+
+Consome eventos e publica SignalR.
+
+28.6 Machine Simulator
+----------------------
+
+BackgroundService que simula eventos de máquinas.
+
+28.7 Outbox Publisher
+---------------------
+
+Worker responsável por publicar mensagens pendentes no NATS.
+
+Cada microsserviço deve possuir banco próprio.
+
+Não compartilhar tabelas entre serviços.
+
+
+29. NOMAD E ON-PREMISES
+=======================
+
+Adicionar após os containers estarem maduros.
+
+Estudar:
+
+- job;
+- group;
+- task;
+- allocation;
+- service;
+- health checks;
+- restart;
+- update;
+- rolling deployment;
+- constraints;
+- volumes;
+- secrets;
+- arquivos HCL.
+
+Considerações on-premises:
+
+- internet limitada;
+- redes segmentadas;
+- certificados internos;
+- DNS interno;
+- proxies;
+- persistência;
+- backup;
+- rollback;
+- atualização controlada;
+- integração com legado;
+- operação com falhas de rede.
+
+
+30. ORDEM DE IMPLEMENTAÇÃO
+==========================
+
+Fase 1 — Fundação
+
+- verificar projeto atual;
+- organizar pastas;
+- PostgreSQL;
+- EF Core;
+- migrations;
+- configurações por entidade;
+- DbContext pequeno;
+- middleware de exceção;
+- ProblemDetails;
+- health check;
+- teste de integração inicial.
+
+Fase 2 — Product
+
+- entidade;
+- enum ou estado;
+- configuration;
+- repository;
+- service;
+- controller;
+- migration;
+- testes.
+
+Fase 3 — ProductionOrder
+
+- entidade;
+- status;
+- regras;
+- operations;
+- configuration;
+- repository;
+- service;
+- endpoints;
+- testes de transição.
+
+Fase 4 — Execution
+
+- OperationExecution;
+- ProductionReport;
+- idempotência;
+- start;
+- pause;
+- resume;
+- report;
+- complete.
+
+Fase 5 — Equipment
+
+- Equipment;
+- DowntimeEvent;
+- estado;
+- paradas.
+
+Fase 6 — Quality
+
+- inspeções;
+- medições;
+- aprovação;
+- reprovação.
+
+Fase 7 — Segurança
+
+- Keycloak;
+- autenticação;
+- autorização;
+- auditoria.
+
+Fase 8 — Mensageria
+
+- Outbox;
+- NATS;
+- JetStream;
+- consumidores;
+- ProcessedMessage.
+
+Fase 9 — Tempo real e observabilidade
+
+- SignalR;
+- OpenTelemetry;
+- métricas;
+- dashboards.
+
+Fase 10 — Microsserviços e Nomad
+
+- extrair serviços;
+- bancos próprios;
+- deploy on-premises;
+- jobs Nomad.
+
+
+31. ESCOPO DO PRIMEIRO MVP
+==========================
+
+Implementar primeiro somente:
+
+- Product;
+- ProductionOrder;
+- ProductionOperation;
+- OperationExecution;
+- ProductionReport.
+
+Endpoints mínimos:
+
+POST /api/products
+POST /api/production-orders
+POST /api/production-orders/{id}/operations
+POST /api/production-orders/{id}/release
+POST /api/operations/{id}/start
+POST /api/executions/{id}/reports
+POST /api/executions/{id}/complete
+GET  /api/production-orders/{id}
+
+Não implementar inicialmente:
+
+- microsserviços;
+- Keycloak;
+- NATS;
+- SignalR;
+- Nomad;
+- qualidade completa;
+- manutenção completa;
+- múltiplos bancos.
+
+Primeiro consolidar:
+
+ASP.NET Core
+    +
+Controllers
+    +
+Services
+    +
+Repositories
+    +
+Unit of Work
+    +
+EF Core
+    +
+PostgreSQL
+    +
+Testes
+
+
+32. FORMA DE TRABALHO COM IA
+============================
+
+Ao continuar o projeto com Claude Code ou outro assistente:
+
+1. inspecionar o repositório;
+2. listar árvore relevante;
+3. ler Program.cs;
+4. ler csproj;
+5. ler compose.yaml;
+6. ler DbContext;
+7. ler configurations;
+8. ler entities;
+9. ler repositories;
+10. ler services;
+11. ler controllers;
+12. ler migrations;
+13. executar dotnet build;
+14. executar testes existentes;
+15. não assumir que uma etapa discutida já foi implementada;
+16. propor menor próximo passo;
+17. explicar antes de alterar;
+18. manter o projeto compilando;
+19. não instalar pacote sem justificar;
+20. não gerar toda a arquitetura de uma vez.
+
+A IA deve atuar como tutor e pair programmer.
+
+Ela deve comparar conceitos de C# com TypeScript quando útil, mas sem explicar conceitos
+gerais de backend que o desenvolvedor já conhece.
+
+
+33. PRÓXIMO PASSO RECOMENDADO
+=============================
+
+Ao iniciar uma nova sessão:
+
+1. abrir a pasta real do projeto;
+2. inspecionar arquivos existentes;
+3. executar:
+
+dotnet --version
+dotnet build
+docker compose ps
+dotnet ef migrations list
+
+4. verificar se já existem:
+   - entidade ProductionOrder;
+   - configuration;
+   - repository;
+   - service;
+   - Unit of Work;
+   - controller;
+   - migration inicial.
+
+5. escolher a menor próxima etapa entre:
+   - concluir separação Controller/Service/Repository;
+   - criar Unit of Work;
+   - separar configurações do DbContext;
+   - implementar Product;
+   - melhorar ProductionOrder;
+   - implementar Release;
+   - criar testes unitários.
+
+6. explicar a escolha antes de alterar arquivos.
+
+
+34. CRITÉRIO DE QUALIDADE DO PROJETO
+===================================
+
+O projeto deve demonstrar:
+
+- domínio coerente;
+- regras dentro das entidades;
+- controllers finos;
+- services orientados a casos de uso;
+- repositories específicos;
+- EF Core bem utilizado;
+- tracking consciente;
+- migrations revisadas;
+- transações corretas;
+- idempotência;
+- concorrência;
+- testes;
+- Docker;
+- segurança;
+- mensageria;
+- observabilidade;
+- documentação;
+- evolução arquitetural justificada.
+
+O objetivo final não é apenas possuir uma aplicação funcionando.
+
+O objetivo é demonstrar domínio profissional de desenvolvimento backend com C#,
+ASP.NET Core e arquitetura de sistemas industriais.
