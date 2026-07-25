@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <!-- Fixa o EF Core em 10.0.10. O provider Npgsql 10.0.3 pede 10.0.4, então sem este pin
+         o projeto de testes acabava com versões conflitantes (10.0.4 vs 10.0.10). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

@@ -1,0 +1,18 @@
+@MiniMes.Api_HostAddress = http://localhost:5033
+
+### Criar uma ordem de produção (nasce em Draft)
+POST {{MiniMes.Api_HostAddress}}/api/production-orders
+Content-Type: application/json
+
+{
+  "orderNumber": "OP-0001",
+  "productId": "00000000-0000-0000-0000-000000000001",
+  "plannedQuantity": 100,
+  "priority": 1
+}
+
+### Listar ordens de produção
+GET {{MiniMes.Api_HostAddress}}/api/production-orders
+Accept: application/json
+
+###

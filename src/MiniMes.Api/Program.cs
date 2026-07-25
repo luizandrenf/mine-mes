@@ -1,5 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using MiniMes.Api.Application.Abstractions;
+using MiniMes.Api.Application.ProductionOrders;
 using MiniMes.Api.Data;
+using MiniMes.Api.Infrastructure.Persistence;
+using MiniMes.Api.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +18,12 @@ builder.Services.AddDbContext<MiniMesDbContext>(options =>
 {
     options.UseNpgsql(connectionString);
 });
+
+// Scoped: uma instância por request HTTP. Repository e UnitOfWork recebem o MESMO
+// MiniMesDbContext (também Scoped), então compartilham o change tracker na mesma request.
+builder.Services.AddScoped<IProductionOrderRepository, ProductionOrderRepository>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IProductionOrderService, ProductionOrderService>();
 
 var app = builder.Build();
 
