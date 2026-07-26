@@ -25,4 +25,22 @@ public sealed class ProductionOrderRepository(MiniMesDbContext dbContext)
             .FirstOrDefaultAsync(order => order.Id == id, cancellationToken);
 
     public void Add(ProductionOrder order) => dbContext.ProductionOrders.Add(order);
+
+    public async Task<ProductionOrder?> GetByIdForUpdateAsync(
+        Guid id,
+        CancellationToken cancellationToken
+    ) =>
+        await dbContext.ProductionOrders.FirstOrDefaultAsync(
+            order => order.Id == id,
+            cancellationToken
+        );
+
+    public async Task<bool> OrderNumberExistsAsync(
+        string orderNumber,
+        CancellationToken cancellationToken
+    ) =>
+        await dbContext.ProductionOrders.AnyAsync(
+            order => order.OrderNumber == orderNumber,
+            cancellationToken
+        );
 }

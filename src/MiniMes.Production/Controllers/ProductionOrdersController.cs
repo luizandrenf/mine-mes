@@ -52,4 +52,32 @@ public class ProductionOrdersController(IProductionOrderService service) : Contr
 
         return CreatedAtAction(nameof(GetById), new { id = order.Id }, order);
     }
+
+    [HttpPost("{id:guid}/release")]
+    public async Task<IActionResult> Release(Guid id, CancellationToken cancellationToken)
+    {
+        await service.ReleaseAsync(id, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/complete")]
+    public async Task<IActionResult> Complete(Guid id, CancellationToken cancellationToken)
+    {
+        await service.CompleteAsync(id, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/start")]
+    public async Task<IActionResult> Start(Guid id, CancellationToken cancellationToken)
+    {
+        await service.StartAsync(id, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid id, CancellationToken cancellationToken)
+    {
+        await service.CancelAsync(id, cancellationToken);
+        return NoContent();
+    }
 }

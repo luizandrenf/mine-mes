@@ -8,5 +8,9 @@ public interface IProductionOrderRepository
 
     Task<ProductionOrder?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
+    Task<ProductionOrder?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken);
+
+    Task<bool> OrderNumberExistsAsync(string orderNumber, CancellationToken cancellationToken);
+
     void Add(ProductionOrder order);
 }
