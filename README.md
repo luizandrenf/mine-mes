@@ -100,10 +100,11 @@ isso. É afrouxamento de isolamento aceitável em dev, que não deve viajar para
 | `POST /api/products` | ✅ |
 | `GET /api/products` · `GET /api/products/{id}` | ✅ |
 | `PATCH /api/products/{id}/activate` · `/deactivate` | ✅ |
-| `POST /api/production-orders` | ✅ (valida produto existente + ativo) |
+| `POST /api/production-orders` | ✅ (valida produto existente + ativo e número duplicado) |
 | `GET /api/production-orders` · `GET /api/production-orders/{id}` | ✅ |
-| `POST /api/production-orders/{id}/release` | 🟡 `ProductionOrder.Release()` existe, sem controller |
-| `POST /api/production-orders/{id}/cancel` | 🟡 `Cancel()` existe, sem controller |
+| `POST /api/production-orders/{id}/release` | ✅ |
+| `POST /api/production-orders/{id}/start` · `/complete` | ✅ (provisório: virá do Execution) |
+| `POST /api/production-orders/{id}/cancel` | ✅ |
 | `POST /api/production-orders/{id}/operations` | ⬜ (falta `ProductionOperation`) |
 | `POST /api/operations/{id}/start` | ⬜ |
 | `POST /api/executions/{id}/reports` | ⬜ |
@@ -132,7 +133,7 @@ isso. É afrouxamento de isolamento aceitável em dev, que não deve viajar para
 - [x] Entidade rica com status e transições (Draft→Released→InProgress→Completed / Cancelled)
 - [x] Concorrência otimista (`Version`)
 - [x] Criar / listar / obter por id
-- [ ] Expor `release` / `cancel` via HTTP (controller + service)
+- [x] Expor `release` / `start` / `complete` / `cancel` via HTTP (controller + service)
 - [ ] `ProductionOperation` (sequência, operações da ordem)
 - [ ] Regra: liberar só com ≥1 operação; concluir só com todas as operações concluídas
 

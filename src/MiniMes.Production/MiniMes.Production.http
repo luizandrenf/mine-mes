@@ -1,18 +1,139 @@
 @MiniMes_HostAddress = http://localhost:5033
 
-### Criar uma ordem de produção (nasce em Draft)
+# Preencha com os ids que os POSTs de criação devolvem (201).
+@productId = 44068a15-4e73-48f5-b497-0992402a8623
+@orderId = 2d01d137-ed33-448a-baed-beb30041548b
+@secondOrderId = 49ba99ab-b394-45d4-a465-a2655941868f
+
+### Health check
+GET {{MiniMes_HostAddress}}/health
+
+##############################################################################
+# Products — rode este bloco primeiro: a ordem precisa de um produto ativo.
+##############################################################################
+
+### Criar um produto (nasce ativo) → 201, copie o "id" para @productId
+POST {{MiniMes_HostAddress}}/api/products
+Content-Type: application/json
+
+{
+  "code": "P-0001",
+  "name": "Eixo de transmissão"
+}
+
+### Criar o mesmo código de novo → 422 (código duplicado)
+POST {{MiniMes_HostAddress}}/api/products
+Content-Type: application/json
+
+{
+  "code": "P-0001",
+  "name": "Eixo de transmissão (duplicado)"
+}
+
+### Listar produtos
+GET {{MiniMes_HostAddress}}/api/products
+Accept: application/json
+
+### Obter um produto
+GET {{MiniMes_HostAddress}}/api/products/{{productId}}
+Accept: application/json
+
+### Obter produto inexistente → 404
+GET {{MiniMes_HostAddress}}/api/products/11111111-1111-1111-1111-111111111111
+Accept: application/json
+
+### Desativar → 204 (produto inativo não pode entrar em ordem nova)
+PATCH {{MiniMes_HostAddress}}/api/products/{{productId}}/deactivate
+
+### Reativar → 204
+PATCH {{MiniMes_HostAddress}}/api/products/{{productId}}/activate
+
+##############################################################################
+# Production orders — ciclo Draft → Released → InProgress → Completed
+##############################################################################
+
+### Criar uma ordem (nasce em Draft) → 201, copie o "id" para @orderId
 POST {{MiniMes_HostAddress}}/api/production-orders
 Content-Type: application/json
 
 {
   "orderNumber": "OP-0001",
-  "productId": "00000000-0000-0000-0000-000000000001",
+  "productId": "{{productId}}",
   "plannedQuantity": 100,
   "priority": 1
 }
 
-### Listar ordens de produção
+### Criar o mesmo orderNumber de novo → 422 (número duplicado)
+POST {{MiniMes_HostAddress}}/api/production-orders
+Content-Type: application/json
+
+{
+  "orderNumber": "OP-0001",
+  "productId": "{{productId}}",
+  "plannedQuantity": 50,
+  "priority": 1
+}
+
+### Criar com produto inexistente → 404
+POST {{MiniMes_HostAddress}}/api/production-orders
+Content-Type: application/json
+
+{
+  "orderNumber": "OP-9999",
+  "productId": "11111111-1111-1111-1111-111111111111",
+  "plannedQuantity": 10,
+  "priority": 1
+}
+
+### Criar com produto desativado → 422 (rode o /deactivate acima antes)
+POST {{MiniMes_HostAddress}}/api/production-orders
+Content-Type: application/json
+
+{
+  "orderNumber": "OP-9998",
+  "productId": "{{productId}}",
+  "plannedQuantity": 10,
+  "priority": 1
+}
+
+### Listar ordens
 GET {{MiniMes_HostAddress}}/api/production-orders
 Accept: application/json
+
+### Obter uma ordem
+GET {{MiniMes_HostAddress}}/api/production-orders/{{orderId}}
+Accept: application/json
+
+### Liberar (Draft → Released) → 204, preenche releasedAt
+POST {{MiniMes_HostAddress}}/api/production-orders/{{orderId}}/release
+
+### Liberar de novo → 422 (só ordem em Draft pode ser liberada)
+POST {{MiniMes_HostAddress}}/api/production-orders/{{orderId}}/release
+
+### Iniciar (Released → InProgress) → 204
+POST {{MiniMes_HostAddress}}/api/production-orders/{{orderId}}/start
+
+### Concluir (InProgress → Completed) → 204
+POST {{MiniMes_HostAddress}}/api/production-orders/{{orderId}}/complete
+
+### Cancelar a ordem concluída → 422 (só Draft ou Released podem ser canceladas)
+POST {{MiniMes_HostAddress}}/api/production-orders/{{orderId}}/cancel
+
+### Transição em ordem inexistente → 404
+POST {{MiniMes_HostAddress}}/api/production-orders/11111111-1111-1111-1111-111111111111/release
+
+### Segunda ordem, só para cancelar ainda em Draft → 201, copie para @secondOrderId
+POST {{MiniMes_HostAddress}}/api/production-orders
+Content-Type: application/json
+
+{
+  "orderNumber": "OP-0002",
+  "productId": "{{productId}}",
+  "plannedQuantity": 25,
+  "priority": 2
+}
+
+### Cancelar (Draft → Cancelled) → 204
+POST {{MiniMes_HostAddress}}/api/production-orders/{{secondOrderId}}/cancel
 
 ###

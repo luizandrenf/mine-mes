@@ -33,8 +33,17 @@ public sealed class ProductionOrderService(
             );
         }
 
+        string orderNumber = command.OrderNumber.Trim().ToUpperInvariant();
+
+        if (await repository.OrderNumberExistsAsync(orderNumber, cancellationToken))
+        {
+            throw new DomainException(
+                $"A production order with number '{orderNumber}' already exists."
+            );
+        }
+
         var order = new ProductionOrder(
-            orderNumber: command.OrderNumber.Trim().ToUpperInvariant(),
+            orderNumber: orderNumber,
             productId: command.ProductId,
             plannedQuantity: command.PlannedQuantity,
             priority: command.Priority,
@@ -64,4 +73,33 @@ public sealed class ProductionOrderService(
         ProductionOrder? order = await repository.GetByIdAsync(id, cancellationToken);
         return order is null ? null : ProductionOrderDto.From(order);
     }
+
+    private async Task TransitionAsync(
+        Guid id,
+        Action<ProductionOrder> transition,
+        CancellationToken cancellationToken
+    )
+    {
+        ProductionOrder? order = await repository.GetByIdForUpdateAsync(id, cancellationToken);
+
+        if (order is null)
+        {
+            throw new NotFoundException($"Production order {id} not found.");
+        }
+
+        transition(order);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task ReleaseAsync(Guid id, CancellationToken cancellationToken) =>
+        TransitionAsync(id, order => order.Release(), cancellationToken);
+
+    public Task StartAsync(Guid id, CancellationToken cancellationToken) =>
+        TransitionAsync(id, order => order.Start(), cancellationToken);
+
+    public Task CompleteAsync(Guid id, CancellationToken cancellationToken) =>
+        TransitionAsync(id, order => order.Complete(), cancellationToken);
+
+    public Task CancelAsync(Guid id, CancellationToken cancellationToken) =>
+        TransitionAsync(id, order => order.Cancel(), cancellationToken);
 }
