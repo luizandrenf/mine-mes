@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach: production-api (docker)",
+      "type": "coreclr",
+      "request": "attach",
+      // Escolha sempre o apphost /app/bin/Debug/net10.0/MiniMes.Production.
+      // No modo debug (compose.debug.yaml) so ha 2 processos; no modo hot reload, 4 -- os outros
+      // tres sao o dotnet watch. Para pular o seletor, troque a linha abaixo por
+      // "processName": "MiniMes.Production" -- funciona se o vsdbg casar o nome do apphost.
+      "processId": "${command:pickRemoteProcess}",
+      "pipeTransport": {
+        "pipeProgram": "docker",
+        "pipeArgs": ["exec", "-i", "minimes-production-api"],
+        "pipeCwd": "${workspaceFolder}",
+        "debuggerPath": "/vsdbg/vsdbg",
+        "quoteArgs": false
+      },
+      "sourceFileMap": { "/app": "${workspaceFolder}/src/MiniMes.Production" },
+      "justMyCode": true
+    }
+  ]
+}

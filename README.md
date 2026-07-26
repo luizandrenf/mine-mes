@@ -35,27 +35,61 @@ por caso de uso (transação automática do EF).
 
 ## Como rodar
 
+API e banco sobem juntos pelo Compose, com **hot reload** (`dotnet watch` dentro do container,
+código bind-montado do host). As migrations são aplicadas no startup em `Development`.
+
 ```bash
-# 1. Postgres (porta e senha vêm do .env)
-docker compose up -d
+docker compose up                  # API em :5033 (hot reload) + Postgres em :5434
+curl http://localhost:5033/health  # → Healthy
+```
 
-# 2. Connection string via user-secrets (não versionada)
+Cada serviço tem **seu próprio par api + banco** no `compose.yaml`; para o próximo, copie o bloco e
+troque nome, porta da API, porta do banco e `Database=`.
+
+Para rodar a API fora do container (ou usar `dotnet ef` do host), a connection string vem de
+user-secrets — o Postgres do Compose continua exposto em `localhost:5434`:
+
+```bash
 dotnet user-secrets set "ConnectionStrings:Postgres" \
-  "Host=localhost;Port=5434;Database=minimes;Username=minimes;Password=<senha>" \
+  "Host=localhost;Port=5434;Database=production_db;Username=minimes;Password=<senha>" \
   --project src/MiniMes.Production/MiniMes.Production.csproj
 
-# 3. Migrations
 dotnet tool restore
-dotnet ef database update \
-  --project src/MiniMes.Production/MiniMes.Production.csproj
-
-# 4. Rodar e testar
 dotnet run --project src/MiniMes.Production   # http://localhost:5033
 dotnet test                                    # testes unitários
-curl http://localhost:5033/health              # → Healthy
 ```
 
 Endpoints de exemplo em [`src/MiniMes.Production/MiniMes.Production.http`](./src/MiniMes.Production/MiniMes.Production.http).
+
+### Debug com breakpoints no container
+
+O VS Code anexa no processo dentro do container (`.vscode/launch.json`). Passo único de setup —
+instala o debugger num volume, então sobrevive a `docker compose up --force-recreate`:
+
+```bash
+docker compose exec production-api \
+  bash -c 'curl -sSL https://aka.ms/getvsdbgsh | bash /dev/stdin -v latest -l /vsdbg'
+```
+
+Depois: **F5 → "Attach: production-api (docker)"** e escolher o processo
+`/app/bin/Debug/net10.0/MiniMes.Production`.
+
+Há dois modos de rodar, e a escolha é na subida:
+
+| Modo | Comando | Ao salvar um arquivo |
+|---|---|---|
+| Hot reload (padrão) | `docker compose up -d` | aplica a mudança na hora, sem restart |
+| Debug | `docker compose -f compose.yaml -f compose.debug.yaml up -d` | **nada** — o processo fica parado |
+
+O modo debug troca o `dotnet watch` por `dotnet run` puro: sem watch o processo não reinicia, e
+restart derruba o debugger no meio da sessão. Em compensação, mudou o código, tem que recriar:
+
+```bash
+docker compose -f compose.yaml -f compose.debug.yaml up -d --force-recreate production-api
+```
+
+O `compose.yaml` concede `SYS_PTRACE` e `seccomp:unconfined` ao serviço — o vsdbg não anexa sem
+isso. É afrouxamento de isolamento aceitável em dev, que não deve viajar para produção.
 
 ## Endpoints do MVP
 

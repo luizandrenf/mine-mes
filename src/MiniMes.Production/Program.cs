@@ -38,6 +38,11 @@ app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {
+    using (var scope = app.Services.CreateScope())
+    {
+        scope.ServiceProvider.GetRequiredService<MiniMesDbContext>().Database.Migrate();
+    }
+
     app.MapOpenApi();
 }
 

@@ -1,0 +1,8 @@
+# Modo debug: dotnet run puro. Sem watch, o processo não reinicia a cada save e o
+# debugger não é derrubado no meio da sessão.
+#
+#   docker compose -f compose.yaml -f compose.debug.yaml up -d   # debug
+#   docker compose up -d                                          # volta pro hot reload
+services:
+  production-api:
+    command: dotnet run --no-launch-profile --project .

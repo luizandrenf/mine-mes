@@ -1,30 +1,69 @@
+x-dotnet-service: &dotnet-service
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  # --no-launch-profile: sem isso o applicationUrl do launchSettings.json (localhost:5033)
+  # sobrepõe ASPNETCORE_HTTP_PORTS e o Kestrel escuta no loopback interno do container.
+  command: dotnet watch run --non-interactive --no-launch-profile --project .
+  working_dir: /app
+  environment: &dotnet-env
+    ASPNETCORE_ENVIRONMENT: Development
+    ASPNETCORE_HTTP_PORTS: 8080
+    DOTNET_WATCH_RESTART_ON_RUDE_EDIT: 1
+    NUGET_PACKAGES: /nuget
+  # O vsdbg precisa de ptrace, que o Docker bloqueia por padrão. Afrouxamento só de dev.
+  cap_add:
+    - SYS_PTRACE
+  security_opt:
+    - seccomp:unconfined
+  restart: unless-stopped
+
+x-postgres: &postgres
+  image: postgres:18-alpine
+  environment: &postgres-env
+    POSTGRES_USER: ${POSTGRES_USER}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  healthcheck:
+    # -d postgres: sem isso o pg_isready usa dbname = username, que não existe, e o servidor
+    # loga um FATAL a cada intervalo. O check só verifica se o servidor aceita conexão.
+    test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
+    interval: 5s
+    timeout: 5s
+    retries: 10
+  restart: unless-stopped
+
 services:
-  postgres:
-    image: postgres:18-alpine
-    container_name: minimes-postgres
-
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-
-    ports:
-      - "${POSTGRES_PORT}:5432"
-
+  # ---------- Production ----------
+  production-api:
+    <<: *dotnet-service
+    container_name: minimes-production-api
     volumes:
-      - minimes_postgres_data:/var/lib/postgresql
+      - ./src/MiniMes.Production:/app
+      # Volumes anônimos: o build do container não colide com o do host.
+      - /app/bin
+      - /app/obj
+      - nuget:/nuget
+      - vsdbg:/vsdbg
+    ports:
+      - "5033:8080"
+    environment:
+      <<: *dotnet-env
+      ConnectionStrings__Postgres: >-
+        Host=production-db;Port=5432;Database=production_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+    depends_on:
+      production-db:
+        condition: service_healthy
 
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-    restart: unless-stopped
+  production-db:
+    <<: *postgres
+    container_name: minimes-production-db
+    environment:
+      <<: *postgres-env
+      POSTGRES_DB: production_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - production_db_data:/var/lib/postgresql
 
 volumes:
-  minimes_postgres_data:
+  nuget:
+  vsdbg:
+  production_db_data:
