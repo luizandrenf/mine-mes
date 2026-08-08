@@ -9,8 +9,18 @@ operações → apontamento de produção/refugo → paradas → qualidade → c
 
 ## Stack
 
-.NET 10 · C# 14 · ASP.NET Core Web API (controllers) · EF Core 10 (Npgsql) · PostgreSQL 18 ·
-xUnit · Docker Compose. Futuro: NATS/JetStream, Keycloak, SignalR, OpenTelemetry, Nomad.
+**Backend** — .NET 10 · C# 14 · ASP.NET Core Web API (controllers) · EF Core 10 (Npgsql) ·
+PostgreSQL 18 · xUnit.
+**Frontend** — Next.js 16 (App Router) · React 19 · MUI v9 · TypeScript · Vitest.
+Tudo sobe junto por Docker Compose. Futuro: NATS/JetStream, Keycloak, SignalR, OpenTelemetry, Nomad.
+
+## Estrutura — monorepo
+
+```
+backend/    solução .NET: src/<serviço> + tests/ + MiniMes.sln
+frontend/   web app Next.js (fala só com a API do Production)
+compose.yaml  banco + API + web
+```
 
 ## Arquitetura — microsserviços por contexto
 
@@ -19,14 +29,14 @@ referências entre serviços são `Guid` solto, validadas por API/evento. Constr
 
 | Serviço | Projeto | Entidades | Banco | Status |
 |---|---|---|---|---|
-| **Production** | `src/MiniMes.Production` | Product, ProductionOrder, ProductionOperation | `production_db` | 🟡 em construção |
-| Execution | `src/MiniMes.Execution` | OperationExecution, ProductionReport | `execution_db` | ⬜ |
-| Equipment | `src/MiniMes.Equipment` | Equipment, DowntimeEvent | `equipment_db` | ⬜ |
-| Quality | `src/MiniMes.Quality` | QualityInspection, QualityMeasurement | `quality_db` | ⬜ |
-| Realtime | `src/MiniMes.Realtime` | SignalR alimentado por NATS | — | ⬜ |
-| OutboxPublisher / MachineSimulator | `workers/` | workers | — | ⬜ |
+| **Production** | `backend/src/MiniMes.Production` | Product, ProductionOrder, ProductionOperation | `production_db` | 🟡 em construção |
+| Execution | `backend/src/MiniMes.Execution` | OperationExecution, ProductionReport | `execution_db` | ⬜ |
+| Equipment | `backend/src/MiniMes.Equipment` | Equipment, DowntimeEvent | `equipment_db` | ⬜ |
+| Quality | `backend/src/MiniMes.Quality` | QualityInspection, QualityMeasurement | `quality_db` | ⬜ |
+| Realtime | `backend/src/MiniMes.Realtime` | SignalR alimentado por NATS | — | ⬜ |
+| OutboxPublisher / MachineSimulator | `backend/workers/` | workers | — | ⬜ |
 
-Código compartilhado (`shared/MiniMes.BuildingBlocks`) só é extraído quando o **2º serviço**
+Código compartilhado (`backend/shared/MiniMes.BuildingBlocks`) só é extraído quando o **2º serviço**
 nascer — hoje o handler de exceção/health check vivem dentro de `MiniMes.Production`.
 
 Camadas dentro de cada serviço: `Controller → Service → Repository → DbContext → PostgreSQL`,
@@ -39,7 +49,7 @@ API e banco sobem juntos pelo Compose, com **hot reload** (`dotnet watch` dentro
 código bind-montado do host). As migrations são aplicadas no startup em `Development`.
 
 ```bash
-docker compose up                  # API em :5033 (hot reload) + Postgres em :5434
+docker compose up                  # web :3000 + API :5033 (hot reload) + Postgres :5434
 curl http://localhost:5033/health  # → Healthy
 ```
 
@@ -50,6 +60,8 @@ Para rodar a API fora do container (ou usar `dotnet ef` do host), a connection s
 user-secrets — o Postgres do Compose continua exposto em `localhost:5434`:
 
 ```bash
+cd backend
+
 dotnet user-secrets set "ConnectionStrings:Postgres" \
   "Host=localhost;Port=5434;Database=production_db;Username=minimes;Password=<senha>" \
   --project src/MiniMes.Production/MiniMes.Production.csproj
@@ -59,7 +71,23 @@ dotnet run --project src/MiniMes.Production   # http://localhost:5033
 dotnet test                                    # testes unitários
 ```
 
-Endpoints de exemplo em [`src/MiniMes.Production/MiniMes.Production.http`](./src/MiniMes.Production/MiniMes.Production.http).
+Endpoints de exemplo em [`backend/src/MiniMes.Production/MiniMes.Production.http`](./backend/src/MiniMes.Production/MiniMes.Production.http).
+
+## Frontend
+
+Interface web do Production em [`frontend/`](./frontend): produtos, ordens e operações, com as
+transições de estado expostas como botões. Todo dado é lido no servidor (React Server Components) e
+toda escrita é Server Action — **o browser nunca chama a API**, por isso ela não precisa de CORS.
+
+O `docker compose up` já sobe em `http://localhost:3000`. Fora do container:
+
+```bash
+cd frontend
+cp .env.local.example .env.local   # API_BASE_URL=http://localhost:5033
+npm install
+npm run dev                        # http://localhost:3000
+npm test                           # Vitest
+```
 
 ### Debug com breakpoints no container
 
@@ -137,6 +165,18 @@ isso. É afrouxamento de isolamento aceitável em dev, que não deve viajar para
 - [x] Expor `release` / `start` / `complete` / `cancel` via HTTP (controller + service)
 - [x] `ProductionOperation` (sequência, operações da ordem)
 - [x] Regra: liberar só com ≥1 operação; concluir só com todas as operações concluídas
+
+### Fase 3.5 — Frontend do Production
+- [x] Monorepo (`backend/` + `frontend/`), serviço `web` no Compose
+- [x] Camadas espelhando o backend: `page (RSC) → Server Action → Service → HttpClient`
+- [x] Produtos: listar, criar, ativar/desativar
+- [x] Ordens: listar, criar, detalhe · release / start / complete / cancel
+- [x] Operações: adicionar (só em `Draft`) · start / complete / cancel, respeitando a sequência
+- [x] Botão desabilitado onde a invariante do domínio já refuta; `detail` do ProblemDetails na tela
+- [x] Testes (Vitest + Testing Library, fakes à mão) · boundaries `error` / `not-found`
+- [ ] Editar/excluir, filtro, paginação e busca (a API também não tem)
+- [ ] Testes de página / E2E · imagem Docker de produção (hoje o container é só dev)
+- [ ] Autenticação — depende da Fase 7
 
 ### Fase 4 — Execution (serviço próprio)
 - [ ] `OperationExecution`, `ProductionReport` · start/pause/resume/report/complete · idempotência (`ClientEventId`)

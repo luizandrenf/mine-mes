@@ -34,3 +34,12 @@ msbuild.wrn
 
 # Visual Studio 2015
 .vs/
+
+# Node / Next.js (frontend/)
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.env.local
+coverage/

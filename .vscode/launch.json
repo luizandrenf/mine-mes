@@ -17,7 +17,7 @@
         "debuggerPath": "/vsdbg/vsdbg",
         "quoteArgs": false
       },
-      "sourceFileMap": { "/app": "${workspaceFolder}/src/MiniMes.Production" },
+      "sourceFileMap": { "/app": "${workspaceFolder}/backend/src/MiniMes.Production" },
       "justMyCode": true
     }
   ]
