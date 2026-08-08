@@ -41,6 +41,9 @@ Layers inside a service: `Controller → Service → Repository → DbContext �
 - **Modern C#**: use **primary constructors** for DI/infra/service/handler/exception classes (use the
   parameter directly, no redundant `_field`). Keep a hand-written constructor only when it validates
   invariants (entities) or the EF Core parameterless private ctor is required.
+- **XML doc comments** (`///`) are the exception to the "comments only where indispensable" rule:
+  every controller action and request contract property carries them, because they feed the OpenAPI
+  document (`GenerateDocumentationFile`) and show up in Swagger UI. Nowhere else.
 - Records for DTOs/Commands. Run `dotnet csharpier format .` before finishing.
 
 ## Commands

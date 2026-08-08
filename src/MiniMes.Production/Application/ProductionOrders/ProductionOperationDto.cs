@@ -2,6 +2,7 @@ using MiniMes.Production.Domain.Entities;
 
 namespace MiniMes.Production.Application.ProductionOrders;
 
+/// <param name="Status">One of: Pending, InProgress, Completed, Cancelled.</param>
 public sealed record ProductionOperationDto(
     Guid Id,
     Guid ProductionOrderId,

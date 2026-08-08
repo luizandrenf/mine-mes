@@ -4,6 +4,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>ad1cf9ea-da50-4068-b807-b2664ead6f35</UserSecretsId>
+    <!-- Alimenta o documento OpenAPI com os comentários /// dos controllers e contracts.
+         CS1591: só a superfície HTTP é documentada, não o resto do projeto.
+         CS1573: CancellationToken não vira parâmetro OpenAPI, então não é documentado. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,5 +26,7 @@
     />
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <!-- Só a UI do Swagger: o documento vem do Microsoft.AspNetCore.OpenApi, não do SwaggerGen. -->
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
   </ItemGroup>
 </Project>
