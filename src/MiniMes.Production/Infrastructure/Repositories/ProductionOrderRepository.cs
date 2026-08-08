@@ -8,11 +8,14 @@ namespace MiniMes.Production.Infrastructure.Repositories;
 public sealed class ProductionOrderRepository(MiniMesDbContext dbContext)
     : IProductionOrderRepository
 {
+    // ponytail: Include on GetAll too — few orders, a single join. Split into a summary DTO if the
+    // list grows.
     public async Task<IReadOnlyList<ProductionOrder>> GetAllAsync(
         CancellationToken cancellationToken
     ) =>
         await dbContext
             .ProductionOrders.AsNoTracking()
+            .Include(order => order.Operations)
             .OrderByDescending(order => order.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -22,6 +25,7 @@ public sealed class ProductionOrderRepository(MiniMesDbContext dbContext)
     ) =>
         await dbContext
             .ProductionOrders.AsNoTracking()
+            .Include(order => order.Operations)
             .FirstOrDefaultAsync(order => order.Id == id, cancellationToken);
 
     public void Add(ProductionOrder order) => dbContext.ProductionOrders.Add(order);
@@ -30,10 +34,9 @@ public sealed class ProductionOrderRepository(MiniMesDbContext dbContext)
         Guid id,
         CancellationToken cancellationToken
     ) =>
-        await dbContext.ProductionOrders.FirstOrDefaultAsync(
-            order => order.Id == id,
-            cancellationToken
-        );
+        await dbContext
+            .ProductionOrders.Include(order => order.Operations)
+            .FirstOrDefaultAsync(order => order.Id == id, cancellationToken);
 
     public async Task<bool> OrderNumberExistsAsync(
         string orderNumber,

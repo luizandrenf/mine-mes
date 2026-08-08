@@ -80,4 +80,63 @@ public class ProductionOrdersController(IProductionOrderService service) : Contr
         await service.CancelAsync(id, cancellationToken);
         return NoContent();
     }
+
+    [HttpPost("{id:guid}/operations")]
+    public async Task<ActionResult<ProductionOperationDto>> AddOperation(
+        Guid id,
+        [FromBody] AddProductionOperationRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        var command = new AddProductionOperationCommand(
+            ProductionOrderId: id,
+            Sequence: request.Sequence,
+            Code: request.Code,
+            Description: request.Description,
+            WorkCenterId: request.WorkCenterId,
+            PlannedQuantity: request.PlannedQuantity,
+            TargetCycleTimeSeconds: request.TargetCycleTimeSeconds
+        );
+
+        ProductionOperationDto operation = await service.AddOperationAsync(
+            command,
+            cancellationToken
+        );
+
+        // Location points at the order: there is no individual GET for an operation.
+        return CreatedAtAction(nameof(GetById), new { id }, operation);
+    }
+
+    [HttpPost("{id:guid}/operations/{operationId:guid}/start")]
+    public async Task<IActionResult> StartOperation(
+        Guid id,
+        Guid operationId,
+        CancellationToken cancellationToken
+    )
+    {
+        await service.StartOperationAsync(id, operationId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/operations/{operationId:guid}/complete")]
+    public async Task<IActionResult> CompleteOperation(
+        Guid id,
+        Guid operationId,
+        CancellationToken cancellationToken
+    )
+    {
+        await service.CompleteOperationAsync(id, operationId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/operations/{operationId:guid}/cancel")]
+    public async Task<IActionResult> CancelOperation(
+        Guid id,
+        Guid operationId,
+        CancellationToken cancellationToken
+    )
+    {
+        await service.CancelOperationAsync(id, operationId, cancellationToken);
+        return NoContent();
+    }
 }

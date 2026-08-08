@@ -86,7 +86,7 @@ public class ProductionOrderServiceTests
         ProductionOrderService Service,
         ProductionOrder Order,
         FakeUnitOfWork UnitOfWork
-    ) SeededOrder()
+    ) SeededOrder(bool withOperation = true)
     {
         var repository = new FakeProductionOrderRepository();
         var order = new ProductionOrder(
@@ -95,6 +95,12 @@ public class ProductionOrderServiceTests
             plannedQuantity: 100,
             priority: 1
         );
+
+        if (withOperation)
+        {
+            order.AddOperation(10, "OP-10", "Cut", Guid.NewGuid(), 100);
+        }
+
         repository.Add(order);
 
         var unitOfWork = new FakeUnitOfWork();
@@ -209,18 +215,30 @@ public class ProductionOrderServiceTests
         Assert.Equal(0, unitOfWork.SaveCallCount);
     }
 
+    private static async Task CompleteOrderAsync(
+        ProductionOrderService service,
+        ProductionOrder order
+    )
+    {
+        Guid operationId = order.Operations.Single().Id;
+
+        await service.ReleaseAsync(order.Id, CancellationToken.None);
+        await service.StartAsync(order.Id, CancellationToken.None);
+        await service.StartOperationAsync(order.Id, operationId, CancellationToken.None);
+        await service.CompleteOperationAsync(order.Id, operationId, CancellationToken.None);
+        await service.CompleteAsync(order.Id, CancellationToken.None);
+    }
+
     [Fact]
     public async Task CompleteAsync_persists_after_release_and_start()
     {
         (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
             SeededOrder();
 
-        await service.ReleaseAsync(order.Id, CancellationToken.None);
-        await service.StartAsync(order.Id, CancellationToken.None);
-        await service.CompleteAsync(order.Id, CancellationToken.None);
+        await CompleteOrderAsync(service, order);
 
         Assert.Equal(ProductionOrderStatus.Completed, order.Status);
-        Assert.Equal(3, unitOfWork.SaveCallCount);
+        Assert.Equal(5, unitOfWork.SaveCallCount);
     }
 
     [Fact]
@@ -229,16 +247,14 @@ public class ProductionOrderServiceTests
         (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
             SeededOrder();
 
-        await service.ReleaseAsync(order.Id, CancellationToken.None);
-        await service.StartAsync(order.Id, CancellationToken.None);
-        await service.CompleteAsync(order.Id, CancellationToken.None);
+        await CompleteOrderAsync(service, order);
 
         await Assert.ThrowsAsync<DomainException>(() =>
             service.CancelAsync(order.Id, CancellationToken.None)
         );
 
         Assert.Equal(ProductionOrderStatus.Completed, order.Status);
-        Assert.Equal(3, unitOfWork.SaveCallCount);
+        Assert.Equal(5, unitOfWork.SaveCallCount);
     }
 
     [Fact]
@@ -251,5 +267,121 @@ public class ProductionOrderServiceTests
 
         Assert.Equal(ProductionOrderStatus.Cancelled, order.Status);
         Assert.Equal(1, unitOfWork.SaveCallCount);
+    }
+
+    private static AddProductionOperationCommand OperationCommand(Guid orderId, string code) =>
+        new(
+            ProductionOrderId: orderId,
+            Sequence: 20,
+            Code: code,
+            Description: "  Drill  ",
+            WorkCenterId: Guid.NewGuid(),
+            PlannedQuantity: 50,
+            TargetCycleTimeSeconds: null
+        );
+
+    [Fact]
+    public async Task AddOperationAsync_saves_once_and_returns_dto()
+    {
+        (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
+            SeededOrder();
+
+        ProductionOperationDto dto = await service.AddOperationAsync(
+            OperationCommand(order.Id, "OP-20"),
+            CancellationToken.None
+        );
+
+        Assert.Equal("Pending", dto.Status);
+        Assert.Equal(20, dto.Sequence);
+        Assert.Equal(order.Id, dto.ProductionOrderId);
+        Assert.Equal(2, order.Operations.Count);
+        Assert.Equal(1, unitOfWork.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task AddOperationAsync_normalizes_code()
+    {
+        (ProductionOrderService service, ProductionOrder order, _) = SeededOrder();
+
+        ProductionOperationDto dto = await service.AddOperationAsync(
+            OperationCommand(order.Id, " op-20 "),
+            CancellationToken.None
+        );
+
+        Assert.Equal("OP-20", dto.Code);
+        Assert.Equal("Drill", dto.Description);
+    }
+
+    [Fact]
+    public async Task AddOperationAsync_throws_not_found_when_order_missing()
+    {
+        (ProductionOrderService service, _, FakeUnitOfWork unitOfWork) = SeededOrder();
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.AddOperationAsync(
+                OperationCommand(Guid.NewGuid(), "OP-20"),
+                CancellationToken.None
+            )
+        );
+
+        Assert.Equal(0, unitOfWork.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task StartOperationAsync_saves_once()
+    {
+        (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
+            SeededOrder();
+        ProductionOperation operation = order.Operations.Single();
+
+        await service.ReleaseAsync(order.Id, CancellationToken.None);
+        await service.StartAsync(order.Id, CancellationToken.None);
+        await service.StartOperationAsync(order.Id, operation.Id, CancellationToken.None);
+
+        Assert.Equal(ProductionOperationStatus.InProgress, operation.Status);
+        Assert.Equal(3, unitOfWork.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task CompleteOperationAsync_saves_once()
+    {
+        (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
+            SeededOrder();
+        ProductionOperation operation = order.Operations.Single();
+
+        await service.ReleaseAsync(order.Id, CancellationToken.None);
+        await service.StartAsync(order.Id, CancellationToken.None);
+        await service.StartOperationAsync(order.Id, operation.Id, CancellationToken.None);
+        await service.CompleteOperationAsync(order.Id, operation.Id, CancellationToken.None);
+
+        Assert.Equal(ProductionOperationStatus.Completed, operation.Status);
+        Assert.Equal(4, unitOfWork.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task CancelOperationAsync_saves_once()
+    {
+        (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
+            SeededOrder();
+        ProductionOperation operation = order.Operations.Single();
+
+        await service.CancelOperationAsync(order.Id, operation.Id, CancellationToken.None);
+
+        Assert.Equal(ProductionOperationStatus.Cancelled, operation.Status);
+        Assert.Equal(1, unitOfWork.SaveCallCount);
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_throws_and_does_not_save_when_order_has_no_operations()
+    {
+        (ProductionOrderService service, ProductionOrder order, FakeUnitOfWork unitOfWork) =
+            SeededOrder(withOperation: false);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.ReleaseAsync(order.Id, CancellationToken.None)
+        );
+
+        Assert.Equal(ProductionOrderStatus.Draft, order.Status);
+        Assert.Equal(0, unitOfWork.SaveCallCount);
     }
 }

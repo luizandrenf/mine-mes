@@ -17,4 +17,15 @@ public interface IProductionOrderService
     Task CompleteAsync(Guid id, CancellationToken cancellationToken);
 
     Task CancelAsync(Guid id, CancellationToken cancellationToken);
+
+    Task<ProductionOperationDto> AddOperationAsync(
+        AddProductionOperationCommand command,
+        CancellationToken cancellationToken
+    );
+
+    Task StartOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken);
+
+    Task CompleteOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken);
+
+    Task CancelOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken);
 }

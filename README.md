@@ -105,8 +105,9 @@ isso. É afrouxamento de isolamento aceitável em dev, que não deve viajar para
 | `POST /api/production-orders/{id}/release` | ✅ |
 | `POST /api/production-orders/{id}/start` · `/complete` | ✅ (provisório: virá do Execution) |
 | `POST /api/production-orders/{id}/cancel` | ✅ |
-| `POST /api/production-orders/{id}/operations` | ⬜ (falta `ProductionOperation`) |
-| `POST /api/operations/{id}/start` | ⬜ |
+| `POST /api/production-orders/{id}/operations` | ✅ (sequência única, só em `Draft`) |
+| `POST /api/production-orders/{id}/operations/{operationId}/start` · `/complete` · `/cancel` | ✅ (provisório: virá do Execution) |
+| `POST /api/operations/{id}/start` | ⬜ (rota do serviço Execution) |
 | `POST /api/executions/{id}/reports` | ⬜ |
 | `POST /api/executions/{id}/complete` | ⬜ |
 | `GET /api/executions/{id}` | ⬜ |
@@ -134,8 +135,8 @@ isso. É afrouxamento de isolamento aceitável em dev, que não deve viajar para
 - [x] Concorrência otimista (`Version`)
 - [x] Criar / listar / obter por id
 - [x] Expor `release` / `start` / `complete` / `cancel` via HTTP (controller + service)
-- [ ] `ProductionOperation` (sequência, operações da ordem)
-- [ ] Regra: liberar só com ≥1 operação; concluir só com todas as operações concluídas
+- [x] `ProductionOperation` (sequência, operações da ordem)
+- [x] Regra: liberar só com ≥1 operação; concluir só com todas as operações concluídas
 
 ### Fase 4 — Execution (serviço próprio)
 - [ ] `OperationExecution`, `ProductionReport` · start/pause/resume/report/complete · idempotência (`ClientEventId`)

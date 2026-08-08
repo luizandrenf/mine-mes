@@ -1,0 +1,756 @@
+================================================================================
+MiniMES — ESPECIFICAÇÃO TÉCNICA: ProductionOperation
+Serviço: MiniMes.Production
+Base: MiniMES_Contexto_Tecnico_Completo.txt §15.2, §16.2, §16.3, §17.5, §18, §21, §22.1, §31
+================================================================================
+
+
+1. OBJETIVO
+-----------
+
+Introduzir a entidade ProductionOperation no serviço Production e, com ela, fechar
+as duas regras de ProductionOrder que hoje estão marcadas como pendentes no código:
+
+  - src/MiniMes.Production/Domain/Entities/ProductionOrder.cs:73
+    // ponytail: require at least one operation once ProductionOperation exists.
+
+  - src/MiniMes.Production/Domain/Entities/ProductionOrder.cs:101
+    // ponytail: require all operations completed once they exist.
+
+Fecha também as duas caixas abertas da Fase 3 do README:
+  [ ] ProductionOperation (sequência, operações da ordem)
+  [ ] Regra: liberar só com >=1 operação; concluir só com todas concluídas
+
+E entrega o endpoint POST /api/production-orders/{id}/operations, exigido no
+conjunto mínimo de MVP (spec §31).
+
+
+2. DECISÕES DE PROJETO
+----------------------
+
+2.1 Agregado
+    ProductionOrder é raiz de agregado; Operations é coleção filha da ordem.
+    Motivo: as três invariantes do spec §16.3 precisam enxergar os irmãos
+    ("sequência única por ordem", "operação anterior deve estar concluída antes
+    da próxima iniciar", "só conclui a ordem quando todas as operações estiverem
+    concluídas"). Dentro da entidade elas são um `if`; com entidade solta viram
+    query extra no service e a invariante vaza do domínio.
+
+    Consequência: NÃO existe IProductionOperationRepository nem
+    IProductionOperationService. A operação não tem caminho de escrita próprio.
+    Program.cs não muda.
+
+    Observação: isso difere do estilo usado em ProductionOrder -> Product, que é
+    FK sem navigation property. Ali é referência; aqui é composição.
+
+2.2 Status
+    Apenas os status que o Production consegue dirigir:
+    Pending, InProgress, Completed, Cancelled.
+    Ready(2) e Paused(4) do spec ficam de fora — nada no Production os dispara
+    (são conceitos do futuro Execution service). A numeração do spec é
+    preservada (2 e 4 ficam vagos) e o status é persistido como string, então
+    acrescentá-los depois não exige migration de dados.
+
+2.3 HTTP
+    Além do POST .../operations exigido pelo MVP, expor start/complete/cancel da
+    operação como endpoints provisórios, aninhados na ordem. Mesmo status
+    "provisório: virá do Execution" que já vale para start/complete da ordem.
+    Sem eles, a regra "só conclui a ordem com todas as operações concluídas" não
+    é exercitável pela API.
+
+2.4 WorkCenterId
+    Guid obrigatório, coluna work_center_id uuid NOT NULL, SEM foreign key.
+    WorkCenter pertence ao serviço Catalog, que não existe — não há tabela para
+    apontar. Referência solta, conforme a regra do README: "referências entre
+    serviços são Guid solto, validadas por API/evento". Validação entra quando o
+    Catalog existir.
+
+2.5 Version
+    ProductionOperation NÃO tem token de concorrência. O spec §16.3 não lista
+    Version para ela, e a concorrência já é guardada pelo Version da ordem, que
+    é rotacionado a cada mutação de operação (add/start/complete/cancel).
+    Duas requisições concorrentes sobre operações da mesma ordem colidem no
+    UPDATE de production_orders e resultam em 409.
+
+
+3. Domain/Enums/ProductionOperationStatus.cs                            [NOVO]
+-----------------------------------------------------------------------------
+
+namespace MiniMes.Production.Domain.Enums;
+
+// ponytail: Ready=2 / Paused=4 do spec ficam de fora — nada no Production os
+// dispara. Numeração preservada para entrarem sem migration quando o Execution
+// existir.
+public enum ProductionOperationStatus
+{
+    Pending = 1,
+    InProgress = 3,
+    Completed = 5,
+    Cancelled = 6,
+}
+
+
+4. Domain/Entities/ProductionOperation.cs                               [NOVO]
+-----------------------------------------------------------------------------
+
+Formato idêntico ao de ProductionOrder.cs: ctor privado para o EF Core, ctor
+público validando invariantes, `private set` em todas as propriedades,
+transições que trocam status e lançam DomainException.
+
+4.1 Campos (spec §16.3)
+
+    Guid                      Id
+    Guid                      ProductionOrderId
+    int                       Sequence
+    string                    Code
+    string                    Description
+    Guid                      WorkCenterId
+    decimal                   PlannedQuantity
+    ProductionOperationStatus Status
+    int?                      TargetCycleTimeSeconds
+
+4.2 Construtores
+
+    // EF Core materialization only.
+    private ProductionOperation() { }
+
+    public ProductionOperation(
+        Guid productionOrderId,
+        int sequence,
+        string code,
+        string description,
+        Guid workCenterId,
+        decimal plannedQuantity,
+        int? targetCycleTimeSeconds = null
+    )
+
+    Validações no ctor (todas -> DomainException, mensagem em inglês):
+      - sequence <= 0            "Sequence must be greater than zero."
+      - code em branco           "Operation code is required."
+      - description em branco    "Operation description is required."
+      - plannedQuantity <= 0     "Planned quantity must be greater than zero."
+      - targetCycleTimeSeconds informado e <= 0
+                                 "Target cycle time must be greater than zero."
+
+    Atribuições:
+      Id = Guid.NewGuid();
+      Status = ProductionOperationStatus.Pending;
+      (demais campos vindos dos parâmetros)
+
+    Nota: o ctor é público, mas o único chamador legítimo é
+    ProductionOrder.AddOperation. Não é `internal` porque o projeto de testes é
+    outro assembly.
+
+4.3 Métodos de transição
+
+    Cada método guarda apenas o próprio status. A regra de precedência entre
+    operações mora em ProductionOrder, que é quem enxerga os irmãos.
+
+    public void Start()
+        Só de Pending.
+        Erro: $"Only a pending operation can be started. Current status: {Status}."
+        -> InProgress
+
+    public void Complete()
+        Só de InProgress.
+        Erro: $"Only an in-progress operation can be completed. Current status: {Status}."
+        -> Completed
+
+    public void Cancel()
+        De qualquer status exceto Completed.
+        Erro: "A completed operation cannot be cancelled."
+        -> Cancelled
+
+4.4 Tabela de transições
+
+    Pending     -> InProgress   (Start)
+    Pending     -> Cancelled    (Cancel)
+    InProgress  -> Completed    (Complete)
+    InProgress  -> Cancelled    (Cancel)
+    Completed   -> (terminal)
+    Cancelled   -> (terminal)
+
+
+5. Domain/Entities/ProductionOrder.cs                              [MODIFICADO]
+-----------------------------------------------------------------------------
+
+5.1 Coleção filha
+
+    private readonly List<ProductionOperation> _operations = [];
+
+    public IReadOnlyCollection<ProductionOperation> Operations => _operations;
+
+    O campo de apoio precisa se chamar `_operations` para o EF Core encontrá-lo
+    por convenção (ver §6.2, onde o acesso por campo é declarado explicitamente).
+
+5.2 Localizador privado
+
+    private ProductionOperation Operation(Guid operationId) =>
+        _operations.FirstOrDefault(operation => operation.Id == operationId)
+        ?? throw new NotFoundException(
+            $"Operation {operationId} not found in order {OrderNumber}."
+        );
+
+    NotFoundException já existe em Domain/Exceptions/ e é mapeada para 404 pelo
+    DomainExceptionHandler.
+
+5.3 AddOperation
+
+    public ProductionOperation AddOperation(
+        int sequence,
+        string code,
+        string description,
+        Guid workCenterId,
+        decimal plannedQuantity,
+        int? targetCycleTimeSeconds = null
+    )
+
+    Regras, em ordem:
+      1. Status deve ser Draft.
+         // ponytail: só Draft aceita operações; abrir para Released quando
+         // houver caso de uso real.
+         Erro: $"Operations can only be added to a draft order. Current status: {Status}."
+      2. Sequence não pode já existir na ordem (spec §16.3: "sequência única por
+         ordem").
+         Erro: $"Sequence {sequence} is already used in order {OrderNumber}."
+      3. Instancia ProductionOperation(Id, sequence, ...), adiciona a _operations.
+      4. Version = Guid.NewGuid();
+      5. Retorna a operação criada.
+
+    A validação de sequência duplicada existe em dois níveis: aqui (mensagem de
+    negócio, 422) e no índice único do banco (§6.1, rede de segurança contra
+    corrida — resulta em 500/DbUpdateException; não é o caminho esperado).
+
+5.4 StartOperation
+
+    public void StartOperation(Guid operationId)
+
+    Regras, em ordem:
+      1. Status da ORDEM deve ser InProgress.
+         Erro: $"Operations can only be started on an in-progress order. Current status: {Status}."
+      2. Localiza a operação (§5.2).
+      3. Precedência (spec §16.3: "operação anterior deve estar concluída antes
+         da próxima iniciar"): toda operação com Sequence MENOR que a alvo deve
+         estar Completed ou Cancelled.
+
+         bool previousPending = _operations.Any(other =>
+             other.Sequence < operation.Sequence
+             && other.Status != ProductionOperationStatus.Completed
+             && other.Status != ProductionOperationStatus.Cancelled
+         );
+
+         Erro: $"Operation {operation.Sequence} cannot start while a previous operation is not completed."
+      4. operation.Start();
+      5. Version = Guid.NewGuid();
+
+5.5 CompleteOperation / CancelOperation
+
+    public void CompleteOperation(Guid operationId)
+    public void CancelOperation(Guid operationId)
+
+    Localizam a operação (§5.2), delegam para operation.Complete() /
+    operation.Cancel(), e rotacionam Version. Sem guarda adicional no nível da
+    ordem — completar/cancelar uma operação não depende dos irmãos.
+
+5.6 Release() — substituir o marcador da linha 73
+
+    if (_operations.Count == 0)
+    {
+        throw new DomainException(
+            "A production order requires at least one operation before release."
+        );
+    }
+
+    A guarda vem DEPOIS da checagem de Status != Draft (mantém a ordem de
+    mensagens: primeiro o estado, depois o conteúdo).
+
+5.7 Complete() — substituir o marcador da linha 101
+
+    // ponytail: operação cancelada não bloqueia a conclusão — leitura literal do
+    // spec ("todas concluídas") travaria a ordem para sempre.
+    bool pendingOperations = _operations.Any(operation =>
+        operation.Status != ProductionOperationStatus.Completed
+        && operation.Status != ProductionOperationStatus.Cancelled
+    );
+
+    if (pendingOperations)
+    {
+        throw new DomainException(
+            "All operations must be completed or cancelled before completing the order."
+        );
+    }
+
+5.8 Cancel()
+
+    Sem alteração. Cancelar a ordem NÃO cascateia para as operações.
+    // ponytail: cascata para as operações só quando algo ler o status delas
+    // após o cancelamento da ordem.
+
+
+6. PERSISTÊNCIA
+---------------
+
+6.1 Data/Configurations/ProductionOperationConfiguration.cs             [NOVO]
+
+    Mesmo estilo de ProductionOrderConfiguration.cs. Descoberta automática via
+    ApplyConfigurationsFromAssembly no MiniMesDbContext — nenhum registro
+    necessário.
+
+    builder.ToTable("production_operations");
+    builder.HasKey(operation => operation.Id);
+
+    builder.Property(o => o.Id)
+           .HasColumnName("id").ValueGeneratedNever();
+
+    builder.Property(o => o.ProductionOrderId)
+           .HasColumnName("production_order_id").IsRequired();
+
+    builder.Property(o => o.Sequence)
+           .HasColumnName("sequence").IsRequired();
+
+    builder.Property(o => o.Code)
+           .HasColumnName("code").HasMaxLength(50).IsRequired();
+
+    builder.Property(o => o.Description)
+           .HasColumnName("description").HasMaxLength(200).IsRequired();
+
+    // Referência solta para o WorkCenter (serviço Catalog): sem FK, validada
+    // por API/evento quando o Catalog existir.
+    builder.Property(o => o.WorkCenterId)
+           .HasColumnName("work_center_id").IsRequired();
+
+    builder.Property(o => o.PlannedQuantity)
+           .HasColumnName("planned_quantity").HasPrecision(18, 3).IsRequired();
+
+    builder.Property(o => o.Status)
+           .HasColumnName("status").HasConversion<string>().HasMaxLength(30).IsRequired();
+
+    builder.Property(o => o.TargetCycleTimeSeconds)
+           .HasColumnName("target_cycle_time_seconds");
+
+    // spec §17.5
+    builder.HasIndex(o => new { o.ProductionOrderId, o.Sequence }).IsUnique();
+
+6.2 Data/Configurations/ProductionOrderConfiguration.cs           [MODIFICADO]
+
+    // Composição: a operação não existe fora da ordem, por isso Cascade — ao
+    // contrário do Restrict usado na referência a Product.
+    builder
+        .HasMany(order => order.Operations)
+        .WithOne()
+        .HasForeignKey(operation => operation.ProductionOrderId)
+        .OnDelete(DeleteBehavior.Cascade);
+
+    builder
+        .Navigation(order => order.Operations)
+        .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+6.3 Data/MiniMesDbContext.cs                                     [SEM ALTERAÇÃO]
+
+    // ponytail: sem DbSet<ProductionOperation> — nada consulta operação fora do
+    // agregado. Adicionar quando aparecer uma query direta.
+
+6.4 Infrastructure/Repositories/ProductionOrderRepository.cs      [MODIFICADO]
+
+    Acrescentar .Include(order => order.Operations) nos três reads:
+
+      GetAllAsync           -> AsNoTracking().Include(...).OrderByDescending(...)
+      GetByIdAsync          -> AsNoTracking().Include(...)
+      GetByIdForUpdateAsync -> Include(...)          [tracked, sem AsNoTracking]
+
+    // ponytail: Include também no GetAll — poucas ordens, um join só. Separar
+    // em DTO resumido se a lista crescer.
+
+    OrderNumberExistsAsync e Add não mudam.
+
+6.5 SQL resultante (spec §17.5)
+
+    CREATE TABLE production_operations (
+        id                        uuid           NOT NULL,
+        production_order_id       uuid           NOT NULL,
+        sequence                  integer        NOT NULL,
+        code                      varchar(50)    NOT NULL,
+        description               varchar(200)   NOT NULL,
+        work_center_id            uuid           NOT NULL,
+        planned_quantity          numeric(18,3)  NOT NULL,
+        status                    varchar(30)    NOT NULL,
+        target_cycle_time_seconds integer        NULL,
+        CONSTRAINT pk_production_operations PRIMARY KEY (id),
+        CONSTRAINT fk_production_operations_production_orders_production_order_id
+            FOREIGN KEY (production_order_id)
+            REFERENCES production_orders (id) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX ix_production_operations_production_order_id_sequence
+        ON production_operations (production_order_id, sequence);
+
+6.6 Migration
+
+    dotnet ef migrations add AddProductionOperation --project src/MiniMes.Production
+
+    Em Development a migration é aplicada no startup (Program.cs já faz
+    Database.Migrate()).
+
+
+7. APPLICATION — Application/ProductionOrders/
+----------------------------------------------
+
+Tudo dentro da pasta da ordem. Nenhum arquivo em Application/ProductionOperations/,
+porque a operação não é agregado próprio.
+
+7.1 AddProductionOperationCommand.cs                                    [NOVO]
+
+    public sealed record AddProductionOperationCommand(
+        Guid ProductionOrderId,
+        int Sequence,
+        string Code,
+        string Description,
+        Guid WorkCenterId,
+        decimal PlannedQuantity,
+        int? TargetCycleTimeSeconds
+    );
+
+7.2 ProductionOperationDto.cs                                           [NOVO]
+
+    public sealed record ProductionOperationDto(
+        Guid Id,
+        Guid ProductionOrderId,
+        int Sequence,
+        string Code,
+        string Description,
+        Guid WorkCenterId,
+        decimal PlannedQuantity,
+        string Status,
+        int? TargetCycleTimeSeconds
+    )
+    {
+        public static ProductionOperationDto From(ProductionOperation operation) =>
+            new(
+                operation.Id,
+                operation.ProductionOrderId,
+                operation.Sequence,
+                operation.Code,
+                operation.Description,
+                operation.WorkCenterId,
+                operation.PlannedQuantity,
+                operation.Status.ToString(),
+                operation.TargetCycleTimeSeconds
+            );
+    }
+
+7.3 ProductionOrderDto.cs                                          [MODIFICADO]
+
+    Acrescentar o parâmetro final:
+
+        IReadOnlyList<ProductionOperationDto> Operations
+
+    E preencher em From:
+
+        order.Operations.OrderBy(op => op.Sequence)
+                        .Select(ProductionOperationDto.From)
+                        .ToList()
+
+    Continua sem expor Version.
+
+7.4 IProductionOrderService.cs                                     [MODIFICADO]
+
+    Task<ProductionOperationDto> AddOperationAsync(
+        AddProductionOperationCommand command, CancellationToken cancellationToken);
+
+    Task StartOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken);
+    Task CompleteOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken);
+    Task CancelOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken);
+
+7.5 ProductionOrderService.cs                                      [MODIFICADO]
+
+    Três das quatro implementações reaproveitam o helper privado TransitionAsync
+    que já existe (carrega ForUpdate, lança NotFoundException, aplica a ação,
+    faz UM SaveChangesAsync):
+
+        public Task StartOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken) =>
+            TransitionAsync(id, order => order.StartOperation(operationId), cancellationToken);
+
+        public Task CompleteOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken) =>
+            TransitionAsync(id, order => order.CompleteOperation(operationId), cancellationToken);
+
+        public Task CancelOperationAsync(Guid id, Guid operationId, CancellationToken cancellationToken) =>
+            TransitionAsync(id, order => order.CancelOperation(operationId), cancellationToken);
+
+    AddOperationAsync é a única com corpo próprio, porque devolve DTO:
+
+        public async Task<ProductionOperationDto> AddOperationAsync(
+            AddProductionOperationCommand command,
+            CancellationToken cancellationToken
+        )
+        {
+            ProductionOrder order =
+                await repository.GetByIdForUpdateAsync(command.ProductionOrderId, cancellationToken)
+                ?? throw new NotFoundException(
+                    $"Production order {command.ProductionOrderId} not found."
+                );
+
+            ProductionOperation operation = order.AddOperation(
+                sequence: command.Sequence,
+                code: command.Code.Trim().ToUpperInvariant(),
+                description: command.Description.Trim(),
+                workCenterId: command.WorkCenterId,
+                plannedQuantity: command.PlannedQuantity,
+                targetCycleTimeSeconds: command.TargetCycleTimeSeconds
+            );
+
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return ProductionOperationDto.From(operation);
+        }
+
+    Normalização de Code (Trim + ToUpperInvariant) fica no service, igual ao que
+    CreateAsync já faz com OrderNumber. Description recebe só Trim.
+
+
+8. HTTP
+-------
+
+8.1 Contracts/AddProductionOperationRequest.cs                          [NOVO]
+
+    Classe simples (não record) com DataAnnotations e `required`, no molde de
+    CreateProductionOrderRequest.
+
+    public class AddProductionOperationRequest
+    {
+        [Range(1, int.MaxValue)]
+        public int Sequence { get; set; }
+
+        [Required, MinLength(1), MaxLength(50)]
+        public required string Code { get; set; }
+
+        [Required, MinLength(1), MaxLength(200)]
+        public required string Description { get; set; }
+
+        [Required]
+        public Guid WorkCenterId { get; set; }
+
+        [Range(0.001, 1_000_000)]
+        public decimal PlannedQuantity { get; set; }
+
+        [Range(1, int.MaxValue)]
+        public int? TargetCycleTimeSeconds { get; set; }
+    }
+
+8.2 Controllers/ProductionOrdersController.cs                      [MODIFICADO]
+
+    Rotas aninhadas na ordem. Spec §18: nada de PATCH com `status` no body —
+    o verbo vai no path. Sem try/catch; DomainExceptionHandler cobre 404/409/422.
+
+    +--------------------------------------------------------------+---------+
+    | Rota                                                         | Sucesso |
+    +--------------------------------------------------------------+---------+
+    | POST /api/production-orders/{id:guid}/operations             | 201     |
+    | POST .../operations/{operationId:guid}/start                 | 204     |
+    | POST .../operations/{operationId:guid}/complete              | 204     |
+    | POST .../operations/{operationId:guid}/cancel                | 204     |
+    +--------------------------------------------------------------+---------+
+
+    O POST mapeia Request -> Command à mão, com argumentos nomeados, e devolve:
+
+        return CreatedAtAction(nameof(GetById), new { id }, operation);
+
+    (Location aponta para a ordem — não há GET individual de operação.)
+
+8.3 Códigos de erro esperados
+
+    404  ordem inexistente; operationId inexistente na ordem
+    409  DbUpdateConcurrencyException (Version da ordem alterado em paralelo)
+    422  qualquer DomainException:
+           - adicionar operação fora de Draft
+           - sequência duplicada
+           - liberar ordem sem operação
+           - iniciar operação com anterior pendente
+           - iniciar operação com ordem fora de InProgress
+           - concluir ordem com operação pendente
+           - transição inválida da própria operação
+    400  falha de DataAnnotations (validação de contrato, antes do service)
+
+8.4 Program.cs                                                   [SEM ALTERAÇÃO]
+
+    Nenhum serviço ou repositório novo para registrar.
+
+
+9. TESTES — tests/MiniMes.UnitTests/
+------------------------------------
+
+Estilo obrigatório do projeto: xUnit puro, Assert.* (sem FluentAssertions),
+fakes escritos à mão (sem biblioteca de mock), nomes de método em inglês no
+formato Snake_case_after_first_word.
+
+9.1 ProductionOperationTests.cs                                         [NOVO]
+
+    Helper:
+      private static ProductionOperation NewOperation() =>
+          new(Guid.NewGuid(), sequence: 10, code: "OP-10", description: "Cut",
+              workCenterId: Guid.NewGuid(), plannedQuantity: 100);
+
+    Casos:
+      New_operation_starts_pending
+      Constructor_rejects_non_positive_sequence            [Theory: 0, -1]
+      Constructor_rejects_blank_code                       [Theory: "", " "]
+      Constructor_rejects_blank_description                [Theory: "", " "]
+      Constructor_rejects_non_positive_quantity            [Theory: 0, -5]
+      Constructor_rejects_non_positive_cycle_time          [Theory: 0, -1]
+      Start_from_pending_moves_to_in_progress
+      Start_outside_pending_throws
+      Complete_from_in_progress_moves_to_completed
+      Complete_outside_in_progress_throws
+      Cancel_from_pending_moves_to_cancelled
+      Cancel_from_in_progress_moves_to_cancelled
+      Cancel_completed_throws
+
+9.2 ProductionOrderTests.cs                                        [MODIFICADO]
+
+    ATENÇÃO — QUEBRA EXISTENTE: o helper atual NewDraftOrder() produz ordem sem
+    operação, e Release() passa a recusar isso. Todos os testes que hoje chamam
+    Release()/Start()/Complete() vão falhar até serem ajustados.
+
+    Acrescentar um segundo helper e migrar esses testes para ele:
+
+      private static ProductionOrder NewReleasableOrder()
+      {
+          var order = NewDraftOrder();
+          order.AddOperation(10, "OP-10", "Cut", Guid.NewGuid(), 100);
+          return order;
+      }
+
+    Casos novos:
+      AddOperation_returns_pending_operation_and_rotates_version
+      AddOperation_rejects_duplicated_sequence
+      AddOperation_outside_draft_throws
+      Release_without_operations_throws
+      Release_with_one_operation_succeeds
+      StartOperation_requires_order_in_progress
+      StartOperation_throws_when_previous_operation_not_completed
+      StartOperation_succeeds_when_previous_operation_completed
+      StartOperation_succeeds_when_previous_operation_cancelled
+      StartOperation_unknown_id_throws_not_found
+      Complete_throws_when_any_operation_is_pending
+      Complete_succeeds_when_all_operations_completed
+      Complete_succeeds_when_remaining_operations_are_cancelled
+
+9.3 ProductionOrderServiceTests.cs                                 [MODIFICADO]
+
+    ATENÇÃO — QUEBRA EXISTENTE: o helper SeededOrder() semeia uma ordem Draft sem
+    operação; os testes de ReleaseAsync passam a falhar. Semear uma operação no
+    helper.
+
+    FakeProductionOrderRepository NÃO precisa mudar: a List<ProductionOrder> em
+    memória já devolve a mesma instância com suas operações carregadas.
+
+    Casos novos:
+      AddOperationAsync_saves_once_and_returns_dto
+      AddOperationAsync_normalizes_code                    (" op-10 " -> "OP-10")
+      AddOperationAsync_throws_not_found_when_order_missing (SaveCallCount == 0)
+      StartOperationAsync_saves_once
+      CompleteOperationAsync_saves_once
+      CancelOperationAsync_saves_once
+      ReleaseAsync_throws_and_does_not_save_when_order_has_no_operations
+
+    Padrão de asserção do projeto: sempre "mudou de estado E SaveCallCount == N",
+    ou "lançou E SaveCallCount == 0".
+
+
+10. README.md
+-------------
+
+  - Marcar as duas caixas da Fase 3.
+  - Tabela de endpoints:
+      POST /api/production-orders/{id}/operations
+        de  ⬜ (falta ProductionOperation)
+        para ✅
+      Acrescentar as três rotas de transição da operação como
+        ✅ (provisório: virá do Execution)
+
+
+11. ORDEM DE IMPLEMENTAÇÃO SUGERIDA
+-----------------------------------
+
+   1. ProductionOperationStatus.cs
+   2. ProductionOperation.cs
+   3. ProductionOperationTests.cs                 -> dotnet test (verde)
+   4. ProductionOrder.cs (coleção + 4 métodos + 2 regras)
+   5. ProductionOrderTests.cs (ajustar helpers + casos novos) -> dotnet test
+   6. ProductionOperationConfiguration.cs + ajuste em ProductionOrderConfiguration.cs
+   7. ProductionOrderRepository.cs (Includes)
+   8. Command, ProductionOperationDto, ProductionOrderDto
+   9. IProductionOrderService + ProductionOrderService
+  10. ProductionOrderServiceTests.cs (ajustar seed + casos novos) -> dotnet test
+  11. AddProductionOperationRequest.cs + ProductionOrdersController.cs
+  12. dotnet ef migrations add AddProductionOperation
+  13. dotnet csharpier format .
+  14. README.md
+
+  Os passos 3, 5 e 10 são pontos de parada: o build fica verde em cada um.
+
+
+12. VERIFICAÇÃO
+---------------
+
+12.1 Local
+
+    docker compose up -d
+    dotnet build MiniMes.sln
+    dotnet test
+    dotnet csharpier format .
+    dotnet ef migrations add AddProductionOperation --project src/MiniMes.Production
+    dotnet run --project src/MiniMes.Production
+
+12.2 Fluxo end-to-end (http://localhost:5033)
+
+    Os passos marcados [NOVO] exercitam regras que não existiam antes.
+
+     1. POST /api/products                                        -> 201, guarda productId
+     2. POST /api/production-orders                               -> 201, guarda orderId
+     3. POST /api/production-orders/{orderId}/release             -> 422  [NOVO]
+        ("requires at least one operation")
+     4. POST /api/production-orders/{orderId}/operations
+        { sequence: 10, code: "op-10", ... }                      -> 201, guarda op10
+     5. POST ... mesma sequence: 10                               -> 422  [NOVO] (duplicada)
+     6. POST ... sequence: 20                                     -> 201, guarda op20
+     7. POST /api/production-orders/{orderId}/release             -> 204
+     8. POST /api/production-orders/{orderId}/operations          -> 422  [NOVO]
+        (ordem não está mais em Draft)
+     9. POST /api/production-orders/{orderId}/start               -> 204
+    10. POST .../operations/{op20}/start                          -> 422  [NOVO]
+        ("previous operation is not completed")
+    11. POST .../operations/{op10}/start                          -> 204
+    12. POST .../operations/{op10}/complete                       -> 204
+    13. POST /api/production-orders/{orderId}/complete            -> 422  [NOVO]
+        (op20 ainda pendente)
+    14. POST .../operations/{op20}/start                          -> 204
+    15. POST .../operations/{op20}/complete                       -> 204
+    16. POST /api/production-orders/{orderId}/complete            -> 204
+    17. GET  /api/production-orders/{orderId}                     -> 200
+        com as duas operações ordenadas por sequence, code em maiúsculas,
+        e SEM o campo version
+    18. GET  /health                                              -> Healthy
+
+12.3 Conferência no banco
+
+    \d production_operations
+      -> confirmar snake_case, status varchar(30), planned_quantity numeric(18,3),
+         target_cycle_time_seconds nullable, work_center_id NOT NULL SEM fkey,
+         índice único (production_order_id, sequence).
+
+
+13. FORA DE ESCOPO (adicionar quando houver caso de uso)
+--------------------------------------------------------
+
+  - Status Ready e Paused (dependem do Execution service).
+  - Repositório/serviço próprios de ProductionOperation.
+  - DbSet<ProductionOperation> no DbContext.
+  - Reordenação/renumeração de sequência; remoção de operação.
+  - Validação de WorkCenterId (depende do serviço Catalog).
+  - Teto de quantidade: "quantidade não ultrapassa planejado sem regra explícita"
+    (spec §16.3) — o spec deixa a regra explícita em aberto; sem soma de
+    apontamentos (que vive no Execution) não há o que comparar.
+  - Cascata de Cancel da ordem para as operações.
+  - Eventos production.operation.started.v1 / completed.v1 (spec §23, Fase 8).
+  - Teste de integração com WebApplicationFactory + Testcontainers (Fase 2, aberto).
+
+================================================================================

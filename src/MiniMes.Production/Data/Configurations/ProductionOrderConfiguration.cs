@@ -69,5 +69,17 @@ public sealed class ProductionOrderConfiguration : IEntityTypeConfiguration<Prod
             .HasColumnType("timestamp with time zone");
 
         builder.Property(order => order.Version).HasColumnName("version").IsConcurrencyToken();
+
+        // Composition: an operation does not exist outside its order, hence Cascade — unlike the
+        // Restrict used on the reference to Product.
+        builder
+            .HasMany(order => order.Operations)
+            .WithOne()
+            .HasForeignKey(operation => operation.ProductionOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder
+            .Navigation(order => order.Operations)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

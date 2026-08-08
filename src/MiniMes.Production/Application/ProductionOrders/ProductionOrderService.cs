@@ -102,4 +102,47 @@ public sealed class ProductionOrderService(
 
     public Task CancelAsync(Guid id, CancellationToken cancellationToken) =>
         TransitionAsync(id, order => order.Cancel(), cancellationToken);
+
+    public async Task<ProductionOperationDto> AddOperationAsync(
+        AddProductionOperationCommand command,
+        CancellationToken cancellationToken
+    )
+    {
+        ProductionOrder order =
+            await repository.GetByIdForUpdateAsync(command.ProductionOrderId, cancellationToken)
+            ?? throw new NotFoundException(
+                $"Production order {command.ProductionOrderId} not found."
+            );
+
+        ProductionOperation operation = order.AddOperation(
+            sequence: command.Sequence,
+            code: command.Code.Trim().ToUpperInvariant(),
+            description: command.Description.Trim(),
+            workCenterId: command.WorkCenterId,
+            plannedQuantity: command.PlannedQuantity,
+            targetCycleTimeSeconds: command.TargetCycleTimeSeconds
+        );
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ProductionOperationDto.From(operation);
+    }
+
+    public Task StartOperationAsync(
+        Guid id,
+        Guid operationId,
+        CancellationToken cancellationToken
+    ) => TransitionAsync(id, order => order.StartOperation(operationId), cancellationToken);
+
+    public Task CompleteOperationAsync(
+        Guid id,
+        Guid operationId,
+        CancellationToken cancellationToken
+    ) => TransitionAsync(id, order => order.CompleteOperation(operationId), cancellationToken);
+
+    public Task CancelOperationAsync(
+        Guid id,
+        Guid operationId,
+        CancellationToken cancellationToken
+    ) => TransitionAsync(id, order => order.CancelOperation(operationId), cancellationToken);
 }
